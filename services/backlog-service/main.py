@@ -1,7 +1,8 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
-from models import BacklogItem
+from typing import List
+from models import BacklogItem, BacklogItemResponse
 import psycopg2
 import psycopg2.extras
 import os
@@ -65,7 +66,7 @@ def post_backlog(backlog_item: BacklogItem, user_id: int = Depends(get_current_u
     
 
 # Single Item Backlog Get:
-@app.get("/backlog/{game_id}")
+@app.get("/backlog/{game_id}", response_model=BacklogItemResponse)
 def get_backlog_item(game_id: int, user_id: int = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -75,6 +76,26 @@ def get_backlog_item(game_id: int, user_id: int = Depends(get_current_user)):
         res = cur.fetchone()
         if not res: #check if game exists in backlog
             raise HTTPException(status_code=404, detail="Game not found in backlog")
+        return res
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
+    
+
+# All Item Backlog Get:
+@app.get("/backlog/", response_model=List[BacklogItemResponse])
+def get_backlog(user_id: int = Depends(get_current_user)):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try: 
+        cur.execute("SELECT * FROM backlog_items WHERE user_id = %s ORDER BY last_interacted_at DESC", (user_id,))
+        res = cur.fetchall()
         return res
     
     except HTTPException:
