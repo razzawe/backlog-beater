@@ -1,14 +1,13 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
+from models import BacklogItem
 import psycopg2
+import psycopg2.extras
 import os
 app = FastAPI(title="Backlog Service")
-@app.get("/backlog")
-
 
 # DB connection
-
-
 def get_db():
     conn = psycopg2.connect(
         host=os.getenv("POSTGRES_HOST", "postgres"),
@@ -19,6 +18,11 @@ def get_db():
     )
     return conn
 
+# Authentication (TEMP)
+security = HTTPBearer()
+
+SECRET_KEY = os.getenv("JWT_SECRET", "changethislater")
+ALGORITHM = "HS256"
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
@@ -27,4 +31,36 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
     
+
+# Single Item Backlog Insert:
+@app.post("/backlog") 
+def post_backlog(backlog_item: BacklogItem, user_id: int = Depends(get_current_user)):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        # check game exists 
+        cur.execute("SELECT id FROM games WHERE id = %s", (backlog_item.game_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Game not found")
+        
+        # insert backlog item from user
+        cur.execute(
+            """ INSERT INTO backlog_items (user_id, game_id, status, hours_played, progress_percent)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING *
+            """,
+            (user_id, backlog_item.game_id, backlog_item.status, backlog_item.hours_played, backlog_item.progress_percent)
+            )
+        res = cur.fetchone()
+        conn.commit()
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
     
+

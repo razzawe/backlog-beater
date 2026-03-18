@@ -33,5 +33,22 @@ services:
     depends_on:
       - postgres
       - redis
+
+  backlog-service:
+    build: ./services/backlog-service
+    container_name: backlog-backlog-service
+    ports:
+      - "8002:8000"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: backlog_db
+      POSTGRES_USER: backlog_user
+      POSTGRES_PASSWORD: backlogpassword123
+      JWT_SECRET: changethislater
+    depends_on:
+      - postgres
+      - redis
+
 volumes:
   postgres_data:

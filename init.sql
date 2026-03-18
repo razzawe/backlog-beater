@@ -6,23 +6,30 @@ CREATE TABLE users (
     steam_id VARCHAR(255) UNIQUE,
     created_at TIMESTAMP DEFAULT NOW()
 );
-
--- Backlog Items
-CREATE TABLE backlog_items (
+-- Games 
+CREATE TABLE games (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    steam_appid VARCHAR(255),
-    rawg_id VARCHAR(255),
+    steam_appid VARCHAR(255) UNIQUE,
+    rawg_id VARCHAR(255) UNIQUE,
     title VARCHAR(255) NOT NULL,
     cover_url TEXT,
     genres TEXT[],
     estimated_playtime INTEGER,
+    metacritic_score INTEGER,
+    description TEXT,
+    last_synced_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE backlog_items (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
+    status VARCHAR(50) DEFAULT 'not_started',
     hours_played FLOAT DEFAULT 0,
     progress_percent FLOAT DEFAULT 0,
-    status VARCHAR(50) DEFAULT 'not_started',
     last_interacted_at TIMESTAMP DEFAULT NOW(),
     added_at TIMESTAMP DEFAULT NOW()
 );
+
 
 -- Taste Profile
 CREATE TABLE taste_profile (
