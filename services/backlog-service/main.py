@@ -64,3 +64,24 @@ def post_backlog(backlog_item: BacklogItem, user_id: int = Depends(get_current_u
         conn.close()
     
 
+# Single Item Backlog Get:
+@app.get("/backlog/{game_id}")
+def get_backlog_item(game_id: int, user_id: int = Depends(get_current_user)):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try: 
+        cur.execute("SELECT * FROM backlog_items WHERE game_id = %s AND user_id = %s", (game_id, user_id))
+        res = cur.fetchone()
+        if not res: #check if game exists in backlog
+            raise HTTPException(status_code=404, detail="Game not found in backlog")
+        return res
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
+    
