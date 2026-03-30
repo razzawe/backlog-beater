@@ -23,6 +23,8 @@ services:
     container_name: backlog-user-service
     ports:
       - "8001:8000"
+    env_file:
+      - .env
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -39,6 +41,8 @@ services:
     container_name: backlog-backlog-service
     ports:
       - "8002:8000"
+    env_file:
+      - .env
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -49,6 +53,24 @@ services:
     depends_on:
       - postgres
       - redis
-
+  integration-service:
+    build: ./services/integration-service
+    container_name: backlog-integration-service
+    ports:
+      - "8003:8000"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: backlog_db
+      POSTGRES_USER: backlog_user
+      POSTGRES_PASSWORD: backlogpassword123
+      JWT_SECRET: changethislater
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - postgres
+      - redis
 volumes:
   postgres_data:

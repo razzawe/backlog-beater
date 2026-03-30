@@ -63,7 +63,6 @@ def post_backlog(backlog_item: BacklogItem, user_id: int = Depends(get_current_u
     finally:
         cur.close()
         conn.close()
-    
 
 # Single Item Backlog Get:
 @app.get("/backlog/{game_id}", response_model=BacklogItemResponse)

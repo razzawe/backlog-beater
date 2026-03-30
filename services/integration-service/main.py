@@ -1,3 +1,5 @@
+import token
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
@@ -53,36 +55,20 @@ STEAM_API_KEY = os.getenv("STEAM_API_KEY")
 RAWG_API_KEY = os.getenv("RAWG_API_KEY")
 
 # Helper function to get game details by steam_appid
-def get_game_by_steam_appid(conn, steam_appid: str):
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            "SELECT * FROM games WHERE steam_appid = %s",
-            (steam_appid,)
-        )
-        return cur.fetchone()
+# def get_game_by_steam_appid(conn, steam_appid: str):
+#     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+#         cur.execute(
+#             "SELECT * FROM games WHERE steam_appid = %s",
+#             (steam_appid,)
+#         )
+#         return cur.fetchone()
 
-# Helper function to post backlog item to backlog service
-async def post_to_backlog(user_id: int, game_id: int, status: str = "unplayed"):
-    url = f"{BACKLOG_SERVICE_URL}/post_backlog"
-    payload = {
-        "user_id": user_id,
-        "game_id": game_id,
-        "status": status
-    }
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(url, json=payload)
-
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=response.text)
-
-    return response.json()
 
 
 
 # Steam API endpoint to get user's game library
 @app.get("/steam/library/{steam_id}")
-async def get_steam_library(steam_id: str, user_id: int = Depends(get_current_user)):
+async def get_steam_library(steam_id: str, credentials: HTTPAuthorizationCredentials = Depends(security)):
     if not STEAM_API_KEY:
         raise HTTPException(status_code=500, detail="Steam API key not configured")
     
@@ -105,18 +91,34 @@ async def get_steam_library(steam_id: str, user_id: int = Depends(get_current_us
     if not games:
         raise HTTPException(status_code=404, detail="No games found or profile is private")
 
-    for game in games:
-        game["playtime_hours"] = round(game.get("playtime_forever", 0) / 60, 2)
-        db_game = get_game_by_steam_appid(conn, str(game["appid"]))  # Convert appid to string
-        if db_game:  # IF game exists in our DB, add to backlog with unplayed status
-            game_id = db_game["id"]  # Get the actual game id from DB
-            if game["playtime_hours"] == 0:
-                await post_to_backlog(user_id, game_id, status="unplayed")
-            else:
-                await post_to_backlog(user_id, game_id, status="played")
-        else:
-            print("NOT IN DB:", game["appid"], game["name"])
-            
+
+
 
     return {"steam_id": steam_id, "game_count": len(games), "games": games}
 
+
+#RAWG API endpoint to search for games
+@app.get("/games/search")
+async def search_game(q: str):
+    if not RAWG_API_KEY:
+        raise HTTPException(status_code=500, detail="RAWG API key not configured")
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "https://api.rawg.io/api/games",
+            params={"key": RAWG_API_KEY, "search": q, "page_size": 5}
+        )
+        data = response.json()
+
+    results = data.get("results", [])
+    return [
+        {
+            "rawg_id": str(g["id"]),
+            "title": g["name"],
+            "cover_url": g.get("background_image"),
+            "genres": [genre["name"] for genre in g.get("genres", [])],
+            "estimated_playtime": g.get("playtime"),
+            "metacritic_score": g.get("metacritic")
+        }
+        for g in results
+    ]
