@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
 from jose import jwt, JWTError
 from typing import List
 from models import BacklogItem, BacklogItemResponse
@@ -7,6 +8,15 @@ import psycopg2
 import psycopg2.extras
 import os
 app = FastAPI(title="Backlog Service")
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # DB connection
 def get_db():
@@ -112,7 +122,25 @@ def get_backlog_item(game_id: int, user_id: int = Depends(get_current_user)):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try: 
-        cur.execute("SELECT * FROM backlog_items WHERE game_id = %s AND user_id = %s", (game_id, user_id))
+        cur.execute("""
+            SELECT 
+                bi.id,
+                bi.user_id,
+                bi.game_id,
+                bi.status,
+                bi.hours_played,
+                bi.progress_percent,
+                bi.last_interacted_at,
+                bi.added_at,
+                g.title,
+                g.cover_url,
+                g.genres,
+                g.estimated_playtime,
+                g.metacritic_score
+            FROM backlog_items bi
+            JOIN games g ON bi.game_id = g.id
+            WHERE bi.game_id = %s AND bi.user_id = %s
+        """, (game_id, user_id))
         res = cur.fetchone()
         if not res: #check if game exists in backlog
             raise HTTPException(status_code=404, detail="Game not found in backlog")
@@ -128,13 +156,31 @@ def get_backlog_item(game_id: int, user_id: int = Depends(get_current_user)):
     
 
 # All Item Backlog Get:
-@app.get("/backlog/", response_model=List[BacklogItemResponse])
+@app.get("/backlog", response_model=List[BacklogItemResponse])
 def get_backlog(user_id: int = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     try: 
-        cur.execute("SELECT * FROM backlog_items WHERE user_id = %s ORDER BY last_interacted_at DESC", (user_id,))
+        cur.execute("""
+            SELECT 
+                bi.id,
+                bi.user_id,
+                bi.game_id,
+                bi.status,
+                bi.hours_played,
+                bi.progress_percent,
+                bi.last_interacted_at,
+                bi.added_at,
+                g.title,
+                g.cover_url,
+                g.genres,
+                g.estimated_playtime,
+                g.metacritic_score
+            FROM backlog_items bi
+            JOIN games g ON bi.game_id = g.id
+            WHERE bi.user_id = %s ORDER BY last_interacted_at DESC
+        """, (user_id,))
         res = cur.fetchall()
         return res
     

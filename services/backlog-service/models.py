@@ -19,6 +19,11 @@ class BacklogItemResponse(BaseModel):
     progress_percent: float
     last_interacted_at: datetime
     added_at: datetime
+    title: str
+    cover_url: Optional[str]
+    genres: Optional[List[str]]
+    estimated_playtime: Optional[int]
+    metacritic_score: Optional[int]
 
 
 class SteamGameItem(BaseModel):
