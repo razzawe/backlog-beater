@@ -26,8 +26,11 @@ CREATE TABLE backlog_items (
     status VARCHAR(50) DEFAULT 'not_started',
     hours_played FLOAT DEFAULT 0,
     progress_percent FLOAT DEFAULT 0,
+    play_from_scratch BOOLEAN DEFAULT FALSE,
+    progress_manually_set BOOLEAN DEFAULT FALSE,
     last_interacted_at TIMESTAMP DEFAULT NOW(),
-    added_at TIMESTAMP DEFAULT NOW()
+    added_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, game_id)
 );
 
 

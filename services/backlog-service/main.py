@@ -31,7 +31,48 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         return user_id
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
-    
+
+
+from psycopg2.extras import execute_values
+from datetime import datetime
+from models import BacklogItem, BacklogItemResponse, SteamImportRequest
+
+@app.post("/backlog/import")
+def import_steam_library(body: SteamImportRequest, user_id: int = Depends(get_current_user)):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        values = []
+        for game in body.games:
+            status = "in_progress" if game.hours_played > 0 else "not_started"
+            last_interacted = game.last_interacted_at or datetime.utcnow()
+            values.append((
+                user_id,
+                game.game_id,
+                status,
+                game.hours_played,
+                game.progress_percent,
+                last_interacted
+            ))
+
+        execute_values(
+            cur,
+            """
+            INSERT INTO backlog_items
+            (user_id, game_id, status, hours_played, progress_percent, last_interacted_at)
+            VALUES %s
+            ON CONFLICT (user_id, game_id) DO NOTHING
+            """,
+            values
+        )
+        conn.commit()
+        return {"message": f"{len(values)} games imported successfully"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 # Single Item Backlog Insert:
 @app.post("/backlog") 

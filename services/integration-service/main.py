@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 app = FastAPI(title="Integration Service")
-BACKLOG_SERVICE_URL = os.getenv("BACKLOG_SERVICE_URL", "localhost:8002")
+BACKLOG_SERVICE_URL = os.getenv("BACKLOG_SERVICE_URL", "http://backlog-backlog-service:8000")
 
 # Authentication (TEMP)
 security = HTTPBearer()
@@ -48,23 +48,76 @@ def get_redis():
         decode_responses=True
     )
 
-conn = get_db()
-cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
 # API keys
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
 RAWG_API_KEY = os.getenv("RAWG_API_KEY")
 
-# Helper function to get game details by steam_appid
-# def get_game_by_steam_appid(conn, steam_appid: str):
-#     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-#         cur.execute(
-#             "SELECT * FROM games WHERE steam_appid = %s",
-#             (steam_appid,)
-#         )
-#         return cur.fetchone()
+async def get_or_populate_game(steam_appid: str, game_name: str):
+    # check cache first:
+    r = get_redis()
+    cached = r.get(f"game:{steam_appid}")
+    if cached:
+        return json.loads(cached)
+    
+    # if not in cache, get games table first:
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT * FROM games WHERE steam_appid = %s", (steam_appid,))
+        game = cur.fetchone()
+        if game:
+            r.setex(f"game:{steam_appid}", 3600, json.dumps(dict(game), default=str))
+            return dict(game)
+    finally:
+        cur.close()
+        conn.close()
 
+    #if not in cache, call RAWG API:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(
+            "https://api.rawg.io/api/games",
+            params={"key": RAWG_API_KEY, "search": game_name, "page_size": 1}
+        )
+        data = response.json()
+    results = data.get("results", [])
+    rawg_game = results[0] if results else {}
+    genres = [genre["name"] for genre in rawg_game.get("genres", [])]
 
+    # save to DB and cache:
+    game_data = {
+        "steam_appid": steam_appid,
+        "title": game_name,
+        "cover_url": rawg_game.get("background_image"),
+        "genres": genres,
+        "estimated_playtime": rawg_game.get("playtime"),
+        "metacritic_score": rawg_game.get("metacritic")
+    }
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            INSERT INTO games (steam_appid, title, cover_url, genres, estimated_playtime, metacritic_score)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (steam_appid) DO UPDATE SET
+                last_synced_at = NOW()
+            RETURNING *
+            """, (
+            game_data["steam_appid"],
+            game_data["title"],
+            game_data["cover_url"],
+            game_data["genres"],
+            game_data["estimated_playtime"],
+            game_data["metacritic_score"]
+        ))
+        game = cur.fetchone()
+        conn.commit()
 
+        r.setex(f"game:{steam_appid}", 86400, json.dumps(dict(game), default=str))
+        return dict(game)
+    finally:
+        cur.close()
+        conn.close()
 
 # Steam API endpoint to get user's game library
 @app.get("/steam/library/{steam_id}")
@@ -91,10 +144,37 @@ async def get_steam_library(steam_id: str, credentials: HTTPAuthorizationCredent
     if not games:
         raise HTTPException(status_code=404, detail="No games found or profile is private")
 
+    enriched_games = []
+    for steam_game in games:
+        steam_appid = str(steam_game["appid"])
+        game_name = steam_game.get("name", f"Game {steam_appid}")
+        hours_played = steam_game.get("playtime_forever", 0) / 60
 
+        game = await get_or_populate_game(steam_appid, game_name)
+        print(f"DEBUG: {game}")
+        enriched_games.append({
+            "game_id": game["id"],
+            "title": game["title"],
+            "hours_played": round(hours_played, 2),
+            "genres": game.get("genres", []),
+            "estimated_playtime": game.get("estimated_playtime"),
+            "cover_url": game.get("cover_url")
+        })
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{BACKLOG_SERVICE_URL}/backlog/import",
+            json={"games": enriched_games},
+            headers={"Authorization": f"Bearer {credentials.credentials}"}
+        )
+        if response.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Backlog service error: {response.text}")
 
-
-    return {"steam_id": steam_id, "game_count": len(games), "games": games}
+    # outside the loop
+    return {
+        "steam_id": steam_id,
+        "game_count": len(enriched_games),
+        "games": enriched_games
+    }
 
 
 #RAWG API endpoint to search for games
