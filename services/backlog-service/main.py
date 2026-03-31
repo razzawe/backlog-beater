@@ -3,9 +3,11 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from jose import jwt, JWTError
 from typing import List
-from models import BacklogItem, BacklogItemResponse
+from models import BacklogItem, BacklogItemResponse, SteamImportRequest
 import psycopg2
 import psycopg2.extras
+from psycopg2.extras import execute_values
+from datetime import datetime
 import os
 app = FastAPI(title="Backlog Service")
 
@@ -43,9 +45,6 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-from psycopg2.extras import execute_values
-from datetime import datetime
-from models import BacklogItem, BacklogItemResponse, SteamImportRequest
 
 @app.post("/backlog/import")
 def import_steam_library(body: SteamImportRequest, user_id: int = Depends(get_current_user)):

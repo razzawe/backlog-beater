@@ -53,14 +53,15 @@ def get_redis():
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")
 RAWG_API_KEY = os.getenv("RAWG_API_KEY")
 
+# Helper function to get game metadata from RAWG and cache it
 async def get_or_populate_game(steam_appid: str, game_name: str):
-    # check cache first:
+    # STEP 1: check cache first
     r = get_redis()
     cached = r.get(f"game:{steam_appid}")
     if cached:
         return json.loads(cached)
     
-    # if not in cache, get games table first:
+    # STEP 2: if not in cache, get games table first
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
@@ -73,7 +74,7 @@ async def get_or_populate_game(steam_appid: str, game_name: str):
         cur.close()
         conn.close()
 
-    #if not in cache, call RAWG API:
+    # STEP 3: if not in cache, call RAWG API:
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(
             "https://api.rawg.io/api/games",
@@ -84,7 +85,7 @@ async def get_or_populate_game(steam_appid: str, game_name: str):
     rawg_game = results[0] if results else {}
     genres = [genre["name"] for genre in rawg_game.get("genres", [])]
 
-    # save to DB and cache:
+    # STEP 4: save to DB and cache:
     game_data = {
         "steam_appid": steam_appid,
         "title": game_name,
@@ -95,6 +96,7 @@ async def get_or_populate_game(steam_appid: str, game_name: str):
     }
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # Insert or update game in DB
     try:
         cur.execute("""
             INSERT INTO games (steam_appid, title, cover_url, genres, estimated_playtime, metacritic_score)
@@ -113,7 +115,9 @@ async def get_or_populate_game(steam_appid: str, game_name: str):
         game = cur.fetchone()
         conn.commit()
 
+        # Cache the game data for 24 hours
         r.setex(f"game:{steam_appid}", 86400, json.dumps(dict(game), default=str))
+
         return dict(game)
     finally:
         cur.close()
@@ -126,40 +130,51 @@ async def get_steam_library(steam_id: str, credentials: HTTPAuthorizationCredent
         raise HTTPException(status_code=500, detail="Steam API key not configured")
     
     url = "http://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/"
-   
-    params = {
+
+
+    #Params for STEAM API call
+    params = { 
         "key": STEAM_API_KEY,
         "steamid": steam_id,
         "include_appinfo": True,
         "include_played_free_games": True,
         "format": "json"
     }
+
+    #Get library data from Steam API
     async with httpx.AsyncClient() as client:
         response = await client.get(url, params=params)
         if response.status_code != 200:
             raise HTTPException(status_code=response.status_code, detail=f"Steam API error: {response.text}")
         data = response.json()
 
+    #Extract games from response
     games = data.get("response", {}).get("games", [])
     if not games:
         raise HTTPException(status_code=404, detail="No games found or profile is private")
 
+    # Enrich games with metadata and prepare for backlog import
     enriched_games = []
+
     for steam_game in games:
-        steam_appid = str(steam_game["appid"])
+        steam_appid = str(steam_game["appid"]) 
         game_name = steam_game.get("name", f"Game {steam_appid}")
         hours_played = steam_game.get("playtime_forever", 0) / 60
 
         game = await get_or_populate_game(steam_appid, game_name)
         print(f"DEBUG: {game}")
+
         enriched_games.append({
             "game_id": game["id"],
-            "title": game["title"],
             "hours_played": round(hours_played, 2),
             "genres": game.get("genres", []),
+            "progress_percent": int(game.get("estimated_playtime", 0) and min(100, (hours_played / game["estimated_playtime"]) * 100)),
             "estimated_playtime": game.get("estimated_playtime"),
             "cover_url": game.get("cover_url")
         })
+        print(f"DEBUG: Estimated playtime for {game['title']}: {int(game.get('estimated_playtime', 0))}")
+        print(f"DEBUG: Progress percent for {game['title']}: {int(game.get('estimated_playtime', 0) and min(100, (hours_played / game['estimated_playtime']) * 100))}")
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{BACKLOG_SERVICE_URL}/backlog/import",
