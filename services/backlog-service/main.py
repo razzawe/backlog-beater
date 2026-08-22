@@ -14,7 +14,7 @@ app = FastAPI(title="Backlog Service")
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -31,7 +31,6 @@ def get_db():
     )
     return conn
 
-# Authentication (TEMP)
 security = HTTPBearer()
 
 SECRET_KEY = os.getenv("JWT_SECRET", "changethislater")
@@ -41,9 +40,13 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = int(payload.get("sub"))
         return user_id
-    except JWTError:
+    except (JWTError, TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token")
 
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "service": "backlog-service"}
 
 
 @app.post("/backlog/import")
@@ -70,12 +73,18 @@ def import_steam_library(body: SteamImportRequest, user_id: int = Depends(get_cu
             INSERT INTO backlog_items
             (user_id, game_id, status, hours_played, progress_percent, last_interacted_at)
             VALUES %s
-            ON CONFLICT (user_id, game_id) DO NOTHING
+            ON CONFLICT (user_id, game_id) DO UPDATE SET
+                hours_played = EXCLUDED.hours_played,
+                status = CASE
+                    WHEN backlog_items.status = 'completed' THEN backlog_items.status
+                    ELSE EXCLUDED.status
+                END,
+                last_interacted_at = EXCLUDED.last_interacted_at
             """,
             values
         )
         conn.commit()
-        return {"message": f"{len(values)} games imported successfully"}
+        return {"message": f"{len(values)} games imported successfully", "imported_count": len(values)}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -134,8 +143,11 @@ def get_backlog_item(game_id: int, user_id: int = Depends(get_current_user)):
                 g.title,
                 g.cover_url,
                 g.genres,
-                g.estimated_playtime,
-                g.metacritic_score
+                g.completion_source,
+                g.main_story_hours,
+                g.main_plus_extras_hours,
+                g.completionist_hours,
+                g.completion_match_confidence
             FROM backlog_items bi
             JOIN games g ON bi.game_id = g.id
             WHERE bi.game_id = %s AND bi.user_id = %s
@@ -174,8 +186,11 @@ def get_backlog(user_id: int = Depends(get_current_user)):
                 g.title,
                 g.cover_url,
                 g.genres,
-                g.estimated_playtime,
-                g.metacritic_score
+                g.completion_source,
+                g.main_story_hours,
+                g.main_plus_extras_hours,
+                g.completionist_hours,
+                g.completion_match_confidence
             FROM backlog_items bi
             JOIN games g ON bi.game_id = g.id
             WHERE bi.user_id = %s ORDER BY last_interacted_at DESC

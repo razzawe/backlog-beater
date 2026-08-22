@@ -1,13 +1,13 @@
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field
+from typing import List, Literal, Optional
 from datetime import datetime
 
 
 class BacklogItem(BaseModel):
     game_id: int
-    status: str = "not_started"
-    hours_played: float = 0
-    progress_percent: float = 0
+    status: Literal["not_started", "in_progress", "completed"] = "not_started"
+    hours_played: float = Field(default=0, ge=0)
+    progress_percent: float = Field(default=0, ge=0, le=100)
 
 
 class BacklogItemResponse(BaseModel):
@@ -22,14 +22,17 @@ class BacklogItemResponse(BaseModel):
     title: str
     cover_url: Optional[str]
     genres: Optional[List[str]]
-    estimated_playtime: Optional[int]
-    metacritic_score: Optional[int]
+    completion_source: Optional[str]
+    main_story_hours: Optional[float]
+    main_plus_extras_hours: Optional[float]
+    completionist_hours: Optional[float]
+    completion_match_confidence: Optional[float]
 
 
 class SteamGameItem(BaseModel):
     game_id: int
-    hours_played: float = 0
-    progress_percent: float = 0
+    hours_played: float = Field(default=0, ge=0)
+    progress_percent: float = Field(default=0, ge=0, le=100)
     last_interacted_at: Optional[datetime] = None
 
 

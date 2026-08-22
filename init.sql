@@ -10,13 +10,18 @@ CREATE TABLE users (
 CREATE TABLE games (
     id SERIAL PRIMARY KEY,
     steam_appid VARCHAR(255) UNIQUE,
-    rawg_id VARCHAR(255) UNIQUE,
     title VARCHAR(255) NOT NULL,
     cover_url TEXT,
     genres TEXT[],
-    estimated_playtime INTEGER,
-    metacritic_score INTEGER,
     description TEXT,
+    is_multiplayer BOOLEAN DEFAULT FALSE,
+    completion_source VARCHAR(50),
+    completion_source_id VARCHAR(255),
+    main_story_hours FLOAT,
+    main_plus_extras_hours FLOAT,
+    completionist_hours FLOAT,
+    completion_match_confidence FLOAT,
+    completion_synced_at TIMESTAMP,
     last_synced_at TIMESTAMP DEFAULT NOW()
 );
 CREATE TABLE backlog_items (

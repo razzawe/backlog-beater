@@ -1,138 +1,150 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { api, ApiError } from './lib/api';
 
 interface BacklogItem {
   id: number;
   title: string;
-  status: string;
+  status: 'not_started' | 'in_progress' | 'completed';
   hours_played: number;
-  progress_percent: number;
   added_at: string;
   cover_url: string | null;
+  genres?: string[];
+  completion_source: string | null;
+  main_story_hours: number | null;
+  main_plus_extras_hours: number | null;
+  completionist_hours: number | null;
+  completion_match_confidence: number | null;
 }
 
+const statusLabels: Record<BacklogItem['status'], string> = {
+  not_started: 'Not started',
+  in_progress: 'In progress',
+  completed: 'Completed',
+};
+
 export default function Home() {
-  const [backlogItems, setBacklogItems] = useState<BacklogItem[]>([]);
+  const router = useRouter();
+  const [items, setItems] = useState<BacklogItem[]>([]);
+  const [steamId, setSteamId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchBacklog();
-  }, []);
-
-  const fetchBacklog = async () => {
+  const loadBacklog = useCallback(async () => {
     try {
-      const token = localStorage.getItem('jwt_token');
-      if (!token) {
-        setError('No authentication token found. Please log in first.');
-        setLoading(false);
+      setError(null);
+      setItems(await api.backlog.list<BacklogItem[]>());
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 401) {
+        api.auth.clearSession();
+        router.replace('/login');
         return;
       }
-
-      const response = await fetch('http://localhost:8002/backlog', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch backlog: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      setBacklogItems(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(requestError instanceof Error ? requestError.message : 'Could not load your backlog.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      case 'in_progress':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'not_started':
-      default:
-        return 'bg-blue-100 text-blue-800';
+  useEffect(() => {
+    if (!api.auth.hasSession()) {
+      router.replace('/login');
+      return;
     }
-  };
+    void loadBacklog();
+  }, [loadBacklog, router]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl">Loading your backlog...</div>
-      </div>
-    );
+  async function importLibrary(event: React.FormEvent) {
+    event.preventDefault();
+    setImporting(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const result = await api.integrations.importSteam<{ game_count: number; completion_matches: number }>(steamId.trim());
+      setMessage(`Imported ${result.game_count} games from Steam. Found completion times for ${result.completion_matches}.`);
+      await loadBacklog();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Steam import failed.');
+    } finally {
+      setImporting(false);
+    }
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-red-600 text-center">
-          <h2 className="text-2xl font-bold mb-4">Error</h2>
-          <p>{error}</p>
-        </div>
-      </div>
-    );
+  function logout() {
+    api.auth.clearSession();
+    router.push('/login');
+  }
+
+  if (loading) {
+    return <main className="shell"><p className="muted">Loading your backlog…</p></main>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">My Game Backlog</h1>
-          <p className="text-lg text-gray-600">Track your gaming progress</p>
+    <main className="shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">Backlog Beater</p>
+          <h1>Your games</h1>
         </div>
+        <button className="button secondary" onClick={logout}>Log out</button>
+      </header>
 
-        {backlogItems.length === 0 ? (
-          <div className="text-center py-12">
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">No games in your backlog</h2>
-            <p className="text-gray-600">Start adding games to track your progress!</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {backlogItems.map((item) => (
-              <div key={item.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
-                {item.cover_url && (
-                  <img
-                    src={item.cover_url}
-                    alt={`${item.title} cover`}
-                    className="w-full h-48 object-cover rounded-md mb-4"
-                  />
-                )}
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">{item.title}</h3>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Status:</span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(item.status)}`}>
-                      {item.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Hours Played:</span>
-                    <span className="text-sm font-medium">{item.hours_played}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Progress:</span>
-                    <span className="text-sm font-medium">{item.progress_percent}%</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Added:</span>
-                    <span className="text-sm font-medium">
-                      {new Date(item.added_at).toLocaleDateString()}
-                    </span>
-                  </div>
+      <section className="panel import-panel">
+        <div>
+          <h2>Import from Steam</h2>
+          <p className="muted">Steam provides your library and playtime. Completion estimates and artwork come from HowLongToBeat.</p>
+        </div>
+        <form className="import-form" onSubmit={importLibrary}>
+          <label className="sr-only" htmlFor="steam-id">Steam ID</label>
+          <input id="steam-id" value={steamId} onChange={(event) => setSteamId(event.target.value)} placeholder="Steam ID" required />
+          <button className="button" disabled={importing} type="submit">{importing ? 'Importing…' : 'Import library'}</button>
+        </form>
+      </section>
+
+      {error && <p className="notice error" role="alert">{error}</p>}
+      {message && <p className="notice success">{message}</p>}
+
+      <section className="section-heading">
+        <h2>Backlog</h2>
+        <span className="count">{items.length} {items.length === 1 ? 'game' : 'games'}</span>
+      </section>
+
+      {items.length === 0 ? (
+        <section className="empty-state">
+          <h2>No games yet</h2>
+          <p className="muted">Import a public Steam library to get started.</p>
+        </section>
+      ) : (
+        <div className="game-list">
+          {items.map((item) => (
+            <article className="game-row" key={item.id}>
+              <div className="cover" aria-hidden="true">
+                {/* Metadata artwork is served from provider-controlled domains. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {item.cover_url ? <img src={item.cover_url} alt="" /> : <span>BG</span>}
+              </div>
+              <div className="game-copy">
+                <div className="game-title-row">
+                  <h3>{item.title}</h3>
+                  <span className={`status ${item.status}`}>{statusLabels[item.status]}</span>
+                </div>
+                <p className="muted">{item.genres?.length ? item.genres.slice(0, 3).join(' · ') : 'No genre metadata'}</p>
+                <div className="facts">
+                  <span><strong>{item.hours_played.toFixed(1)}</strong> hours played</span>
+                  {item.main_story_hours != null && <span><strong>{item.main_story_hours.toFixed(1)}</strong> main story</span>}
+                  {item.main_plus_extras_hours != null && <span><strong>{item.main_plus_extras_hours.toFixed(1)}</strong> main + extras</span>}
+                  {item.completionist_hours != null && <span><strong>{item.completionist_hours.toFixed(1)}</strong> completionist</span>}
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </main>
   );
 }

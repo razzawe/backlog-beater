@@ -1,0 +1,7 @@
+ALTER TABLE games ADD COLUMN IF NOT EXISTS completion_source VARCHAR(50);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS completion_source_id VARCHAR(255);
+ALTER TABLE games ADD COLUMN IF NOT EXISTS main_story_hours FLOAT;
+ALTER TABLE games ADD COLUMN IF NOT EXISTS main_plus_extras_hours FLOAT;
+ALTER TABLE games ADD COLUMN IF NOT EXISTS completionist_hours FLOAT;
+ALTER TABLE games ADD COLUMN IF NOT EXISTS completion_match_confidence FLOAT;
+ALTER TABLE games ADD COLUMN IF NOT EXISTS completion_synced_at TIMESTAMP;
