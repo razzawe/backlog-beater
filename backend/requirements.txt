@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+psycopg2-binary
+python-jose
+bcrypt==4.0.1
+python-dotenv
+pydantic[email]
+redis
+httpx
+howlongtobeatpy==1.0.22

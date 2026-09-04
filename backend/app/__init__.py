@@ -1,0 +1,1 @@
+"""Backlog Beater backend application."""

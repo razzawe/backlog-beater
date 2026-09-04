@@ -20,6 +20,23 @@ services:
     volumes:
       - redis_data:/data
 
+  backend:
+    build: ./backend
+    container_name: backlog-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-backlog_db}
+      POSTGRES_USER: ${POSTGRES_USER:-backlog_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-backlogpassword123}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    depends_on:
+      - postgres
+
   user-service:
     build: ./services/user-service
     container_name: backlog-user-service
