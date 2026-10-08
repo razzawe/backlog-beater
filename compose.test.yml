@@ -1,0 +1,34 @@
+services:
+  test-db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: steam_test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d steam_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+  tests:
+    image: python:3.11-slim
+    working_dir: /workspace/backend
+    volumes:
+      - .:/workspace:ro
+    environment:
+      DATABASE_URL: postgresql+psycopg://test:test@test-db:5432/steam_test
+      SECRET_KEY: isolated-test-secret-key-at-least-32-characters
+      PYTHONPATH: /workspace/backend
+      PYTHONDONTWRITEBYTECODE: "1"
+    depends_on:
+      test-db:
+        condition: service_healthy
+    command:
+      - python
+      - -c
+      - |
+        import subprocess, sys, tomllib
+        with open('pyproject.toml', 'rb') as source:
+            dependencies = tomllib.load(source)['project']['dependencies']
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', *dependencies])
+        sys.exit(subprocess.call([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-v']))
