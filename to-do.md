@@ -72,10 +72,56 @@
 - [x] Return only the authenticated user's games.
 - [x] Store completion_status per user and game: not started, in progress, or finished.
 - [x] Default new ownership records to not started and expose status in library responses.
-- [ ] Add an authenticated endpoint to update completion status on owned games.
+- [x] Add an authenticated endpoint to update completion status on owned games.
 - [ ] Build the library view and status controls.
 - [ ] Add search, sorting, and completion-status filters.
 - [ ] Verify repeated Steam syncs preserve personal completion status.
+
+## API gateway (Nginx Open Source)
+
+### Containers and networking
+
+- [ ] Add a backend Dockerfile with separate startup commands for the main API and sync service.
+- [ ] Add the main API, sync service, and Nginx to Docker Compose alongside PostgreSQL on an internal network.
+- [ ] Expose Nginx at localhost:8080 and keep backend HTTP ports internal.
+- [ ] Configure database health checks and service startup dependencies.
+
+### Environment configuration
+
+- [ ] Configure the database URL and shared JWT secret for both API services.
+- [ ] Configure the Steam API key, APP_PUBLIC_URL, and STEAM_CALLBACK_URL to use the gateway origin.
+- [ ] Update .env.example with gateway configuration placeholders without real secrets.
+
+### Request routing
+
+- [ ] Add an exact Nginx route for /api/v1/steam/sync to the sync service.
+- [ ] Route other /api/v1/* requests to the main API without rewriting paths or query strings.
+- [ ] Return a simple placeholder response at / until the frontend is available.
+
+### Headers, cookies, and timeouts
+
+- [ ] Preserve authorization headers, request cookies, and backend Set-Cookie headers.
+- [ ] Set forwarded host, protocol, and client-IP headers and configure FastAPI to trust the intended proxy.
+- [ ] Configure a proxy timeout suitable for the current Steam sync request flow and preserve backend error responses.
+
+### Integration validation
+
+- [ ] Verify registration, login, and account retrieval through Nginx.
+- [ ] Verify library retrieval and completion-status updates through Nginx.
+- [ ] Verify Steam sync requests reach the sync service through Nginx.
+- [ ] Verify Steam linking cookies and callback routing through the gateway.
+- [ ] Verify gateway behavior when a backend service is unavailable.
+- [ ] Run the existing Docker backend test suite after gateway integration.
+
+### Documentation
+
+- [ ] Document environment setup, startup, shutdown, logs, gateway URL, and Steam callback configuration.
+- [ ] Document handling of existing database schemas; startup table creation does not migrate existing tables.
+
+### Future frontend and production setup
+
+- [ ] Follow-up: route or serve the frontend through Nginx once the frontend setup is chosen.
+- [ ] Follow-up: configure a public domain and HTTPS when production hosting is chosen.
 
 ## Database, services, and validation
 
@@ -87,4 +133,5 @@
 - [ ] Add logging and monitoring for queue depth, job failures, and worker health.
 - [ ] Document environment setup and service startup commands.
 - [ ] Run the Docker test suite after schema changes; defer migration validation until migrations are created at the end.
-- [ ] Add tests for completion-status updates, invalid values, and ownership access control when the update endpoint is built.
+- [x] Add tests for completion-status updates, invalid values, and ownership access control when the update endpoint is built.
+  - Tests also cover repeated Steam sync preserving updated status; Docker suite execution is pending because the Docker daemon was unavailable.

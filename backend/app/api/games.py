@@ -18,6 +18,37 @@ class OwnedGameResponse(BaseModel):
     completion_status: CompletionStatus
 
 
+class UpdateCompletionStatusRequest(BaseModel):
+    completion_status: CompletionStatus
+
+
+@games_router.patch("/{game_id}", response_model=OwnedGameResponse)
+def update_completion_status(
+    game_id: int,
+    body: UpdateCompletionStatusRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> OwnedGameResponse:
+    """Update completion status for a game owned by the authenticated user."""
+    if current_user.id is None:
+        raise HTTPException(status_code=500, detail="User has no database ID")
+
+    ownership = session.get(OwnedGame, (current_user.id, game_id))
+    if ownership is None:
+        raise HTTPException(status_code=404, detail="Owned game not found")
+
+    game = session.get(Game, game_id)
+    ownership.completion_status = body.completion_status
+    session.add(ownership)
+    session.commit()
+    return OwnedGameResponse(
+        id=game.id,
+        steam_app_id=game.steam_app_id,
+        cover_url=game.cover_url,
+        completion_status=ownership.completion_status,
+    )
+
+
 @games_router.get("", response_model=list[OwnedGameResponse])
 def get_owned_games(
     current_user: User = Depends(get_current_user),

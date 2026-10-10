@@ -87,3 +87,51 @@ class OwnedGamesTests(unittest.TestCase):
         response = self.client.get("/api/v1/games?user_id=2", headers=self.headers[0])
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), self.games[:2])
+
+    def test_update_status_persists_and_keeps_other_owner_independent(self):
+        game = self.games[1]
+        for status in ("in progress", "finished", "not started", "not started"):
+            with self.subTest(status=status):
+                response = self.client.patch(
+                    f"/api/v1/games/{game['id']}", headers=self.headers[0],
+                    json={"completion_status": status},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), {**game, "completion_status": status})
+                library = self.client.get("/api/v1/games", headers=self.headers[0]).json()
+                self.assertEqual(library[1]["completion_status"], status)
+                other_library = self.client.get("/api/v1/games", headers=self.headers[1]).json()
+                self.assertEqual(other_library[0]["completion_status"], "not started")
+
+    def test_update_rejects_invalid_or_missing_status(self):
+        for body in ({}, {"completion_status": "invalid"}, {"completion_status": None}):
+            with self.subTest(body=body):
+                response = self.client.patch(
+                    f"/api/v1/games/{self.games[0]['id']}",
+                    headers=self.headers[0], json=body,
+                )
+                self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            self.client.get("/api/v1/games", headers=self.headers[0]).json(),
+            self.games[:2],
+        )
+
+    def test_update_unknown_or_other_users_game_returns_not_found(self):
+        for game_id in (self.games[2]["id"], max(game["id"] for game in self.games) + 1):
+            response = self.client.patch(
+                f"/api/v1/games/{game_id}?user_id=2", headers=self.headers[0],
+                json={"completion_status": "finished"},
+            )
+            self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            self.client.get("/api/v1/games", headers=self.headers[1]).json(),
+            self.games[1:],
+        )
+
+    def test_update_requires_authentication(self):
+        for headers in ({}, {"Authorization": "Bearer invalid"}):
+            response = self.client.patch(
+                f"/api/v1/games/{self.games[0]['id']}", headers=headers,
+                json={"completion_status": "finished"},
+            )
+            self.assertIn(response.status_code, (401, 403))

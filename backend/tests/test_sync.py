@@ -62,6 +62,24 @@ class SyncTests(unittest.TestCase):
             self.assertEqual(session.exec(select(Game)).all(), [])
             self.assertEqual(session.exec(select(OwnedGame)).all(), [])
 
+    def test_repeat_sync_preserves_updated_completion_status(self):
+        from app.main import app as api_app
+
+        payload = {"response": {"game_count": 1, "games": [{"appid": 570}]}}
+        self.assertEqual(self.sync(payload).status_code, 200)
+        with Session(engine) as session:
+            game_id = session.exec(select(Game)).one().id
+        with TestClient(api_app) as api_client:
+            response = api_client.patch(
+                f"/api/v1/games/{game_id}", headers=self.headers,
+                json={"completion_status": "finished"},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(self.sync(payload).status_code, 200)
+            library = api_client.get("/api/v1/games", headers=self.headers)
+            self.assertEqual(library.status_code, 200)
+            self.assertEqual(library.json()[0]["completion_status"], "finished")
+
     def test_empty_library(self):
         # An empty library creates no catalog entries or ownership links.
         self.assertEqual(self.sync({"response": {"game_count": 0}}).json(), {"game_count": 0, "inserted_count": 0, "ownerships_inserted_count": 0})
