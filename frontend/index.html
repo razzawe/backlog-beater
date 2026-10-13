@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101218"><meta name="description" content="Turn your Steam backlog into your next great game.">
+  <title>Backlog Beater — Your next great game</title>
+  <link rel="stylesheet" href="/assets/styles.css"><script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Backlog Beater home"><span class="brand-mark">b<span>↗</span></span><span>backlog<span class="brand-light">beater</span><small>MAKE TIME FOR PLAY.</small></span></a>
+    <div class="nav-label">YOUR SPACE</div>
+    <nav aria-label="Main navigation"><button class="nav-item active" data-view="library"><span>▦</span> My library <span class="nav-dot"></span></button><button class="nav-item" data-view="account"><span>◎</span> Account & Steam</button></nav>
+    <div class="sidebar-bottom"><div class="mini-mark">↗</div><p>Less collecting.<br><strong>More completing.</strong></p><div class="profile"><span id="avatar" class="avatar">?</span><div><strong id="profile-name">Your next chapter</strong><small id="profile-caption">Sign in to get started</small></div><button id="signout" hidden title="Sign out" aria-label="Sign out">↪</button></div></div>
+  </aside>
+  <main>
+    <header class="topbar"><span class="breadcrumb">Your space <span>/</span> <strong id="page-label">My library</strong></span><div class="top-actions"><span class="live-dot"></span><span id="connection-label">Your games. Your pace.</span><button id="account-button" class="avatar small" aria-label="Open account">◎</button></div></header>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <div id="enrichment-progress" class="notice" role="status" aria-live="polite" hidden>
+      <span id="enrichment-message"></span>
+      <progress id="enrichment-bar" aria-label="Completion lookup progress" max="1" value="0" style="display:block;width:100%;margin-top:10px"></progress>
+    </div>
+    <section id="library-view">
+      <div class="intro"><div><div class="eyebrow">GOOD GAMES DESERVE TO BE PLAYED</div><h1>Your next great game<br>is already in your library<span>.</span></h1><p>A little less scrolling. A little more playing.<br>Make a dent in that backlog, one game at a time.</p></div><div class="hero-art" aria-hidden="true"><div class="art-orbit"></div><div class="art-card card-back"><span>PLAY<br>WHAT<br>YOU OWN.</span></div><div class="art-card card-front"><span class="art-star">✦</span><span>ONE MORE<br>CHAPTER.</span><small>BACKLOG BEATER / 01</small></div><span class="floating-label">YOUR NEXT ADVENTURE ↗</span></div></div>
+      <div class="stats"><div><span class="stat-icon purple">▦</span><div><strong id="total-count">0</strong><span>Games in your library</span></div></div><div><span class="stat-icon blue">◷</span><div><strong id="progress-count">0</strong><span>Currently playing</span></div></div><div><span class="stat-icon green">✓</span><div><strong id="finished-count">0</strong><span>Finished & celebrated</span></div></div><div class="completion-stat"><div><strong id="completion-count">0%</strong><span>Your completion rate</span></div><div class="progress-track"><span id="completion-bar"></span></div></div></div>
+      <div class="library-heading"><div><h2>My library <span id="library-badge">0</span></h2><p>All your games. A fresh perspective.</p></div><button id="sync-button" class="button primary" disabled><span>↻</span> Sync Steam library</button></div>
+      <div class="toolbar"><div class="filters" role="group" aria-label="Filter by progress"><button class="filter selected" data-filter="all">All games</button><button class="filter" data-filter="not started">Not started</button><button class="filter" data-filter="in progress">Playing</button><button class="filter" data-filter="finished">Finished</button></div><div class="search-sort"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Search your games…" aria-label="Search library"></label><select id="sort" aria-label="Sort games"><option value="default">Recently added</option><option value="appid">Steam app ID</option><option value="status">Progress</option></select></div></div>
+      <div id="game-grid" class="game-grid" aria-live="polite"></div>
+      <div id="empty-state" class="empty-state"><span class="empty-icon">▦</span><h3 id="empty-title">Your next chapter starts here</h3><p id="empty-copy">Sign in, connect Steam, and bring your library together.<br>Your backlog is full of possibilities.</p><button id="empty-action" class="button primary">Get started <span>↗</span></button></div>
+      <footer><span>Built for the games you haven’t gotten to. Yet.</span><span>ONE GAME AT A TIME ↗</span></footer>
+    </section>
+    <section id="account-view" hidden>
+      <div class="account-heading"><div class="eyebrow">YOUR PLAYER PROFILE</div><h1>Make yourself at home<span>.</span></h1><p>Your account, your Steam connection, your next adventure.</p></div>
+      <div class="account-layout"><div class="account-card" id="auth-card"><div class="auth-tabs"><button id="login-tab" class="selected">Sign in</button><button id="register-tab">Create account</button></div><h2 id="auth-title">Welcome back.</h2><p id="auth-copy">Your backlog will be right where you left it.</p><form id="auth-form"><label>Username<input id="username" name="username" autocomplete="username" minlength="3" maxlength="50" required placeholder="Your player name"></label><label>Password<input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required placeholder="Your password"></label><p id="auth-error" class="form-error" role="alert" hidden></p><button id="auth-submit" class="button primary" type="submit">Sign in <span>↗</span></button></form><small class="auth-note">Sign in to Backlog Beater first, then connect your Steam account.</small></div>
+      <div class="account-card" id="profile-card" hidden><span class="eyebrow">BACKLOG BEATER ACCOUNT</span><h2 id="account-name"></h2><p>You’re ready to make some progress.</p><button id="profile-signout" class="button secondary">Sign out</button></div>
+      <div class="account-card steam-card"><div class="steam-emblem" aria-hidden="true">◉</div><span id="steam-status" class="tag">NOT CONNECTED</span><h2>Your Steam library,<br>all in one place.</h2><p id="steam-copy">Connect through Steam’s official sign-in page. Your Steam password never comes to Backlog Beater.</p><button id="steam-button" class="button steam-button" disabled>Connect Steam <span>↗</span></button><small id="steam-note">Sign in to your Backlog Beater account to connect.</small></div></div>
+    </section>
+  </main>
+</div>
+<dialog id="hltb-review" class="hltb-review" aria-labelledby="hltb-review-title" aria-describedby="hltb-review-copy">
+  <h2 id="hltb-review-title">Resolve HLTB match</h2>
+  <p id="hltb-review-copy">Choose the entry for your game. This selection affects only your account.</p>
+  <p id="hltb-review-reason"></p>
+  <p id="hltb-review-error" class="form-error" role="alert" hidden></p>
+  <div id="hltb-review-candidates"></div>
+  <button id="hltb-review-later" class="button secondary" type="button">None of these / decide later</button>
+</dialog>
+</body>
+</html>

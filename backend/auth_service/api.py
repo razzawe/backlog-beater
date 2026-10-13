@@ -1,21 +1,16 @@
-import os
 from datetime import UTC, datetime, timedelta
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jwt.exceptions import InvalidTokenError
 from pwdlib import PasswordHash
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from app.core.security import ALGORITHM, SECRET_KEY
+from app.core.identity import get_gateway_user
 from app.database import User, get_session
 
 
-SECRET_KEY = os.getenv("SECRET_KEY", "change-this-secret-before-production")
-ALGORITHM = "HS256"
-
 api_router = APIRouter(prefix="/auth", tags=["auth"])
-bearer_scheme = HTTPBearer()
 password_hash = PasswordHash.recommended()
 
 class RegisterRequest(BaseModel):
@@ -48,34 +43,6 @@ def create_access_token(user_id: int) -> str:
         SECRET_KEY,
         algorithm=ALGORITHM,
     )
-
-
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    session: Session = Depends(get_session),
-) -> User:
-    """Resolve the authenticated user from a bearer JWT.
-    Reject invalid or expired tokens and users that no longer exist."""
-    credentials_error = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired token",
-    )
-
-    try:
-        payload = jwt.decode(
-            credentials.credentials,
-            SECRET_KEY,
-            algorithms=[ALGORITHM],
-        )
-        user_id = int(payload["sub"])
-    except (InvalidTokenError, KeyError, ValueError):
-        raise credentials_error
-
-    user = session.get(User, user_id)
-    if user is None:
-        raise credentials_error
-
-    return user
 
 
 @api_router.post("/register", response_model=UserPublic, status_code=201)
@@ -121,15 +88,13 @@ def login(
             detail="Incorrect username or password",
         )
 
-    if user.id is None:
-        raise HTTPException(status_code=500, detail="User has no database ID")
 
     return Token(access_token=create_access_token(user.id))
 
 
 @api_router.get("/me", response_model=UserPublic)
 def read_current_user(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_gateway_user),
 ) -> User:
     """Return the account associated with the authenticated request.
     Expose public user fields through the endpoint response model."""

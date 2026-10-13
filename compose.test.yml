@@ -10,6 +10,13 @@ services:
       interval: 2s
       timeout: 2s
       retries: 20
+  test-cache:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
   tests:
     image: python:3.11-slim
     working_dir: /workspace/backend
@@ -17,11 +24,14 @@ services:
       - .:/workspace:ro
     environment:
       DATABASE_URL: postgresql+psycopg://test:test@test-db:5432/steam_test
+      HLTB_REVIEW_CACHE_URL: redis://test-cache:6379/0
       SECRET_KEY: isolated-test-secret-key-at-least-32-characters
       PYTHONPATH: /workspace/backend
       PYTHONDONTWRITEBYTECODE: "1"
     depends_on:
       test-db:
+        condition: service_healthy
+      test-cache:
         condition: service_healthy
     command:
       - python

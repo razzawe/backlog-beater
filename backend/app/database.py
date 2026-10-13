@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Column, DateTime, Enum as SQLAlchemyEnum
+from sqlalchemy import CheckConstraint, Column, DateTime, Enum as SQLAlchemyEnum, ForeignKeyConstraint, JSON
 from sqlmodel import Field, Session, SQLModel, create_engine
 
 
@@ -24,7 +24,22 @@ class User(SQLModel, table=True):
 class Game(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     steam_app_id: int = Field(unique=True)  # PostgreSQL prevents concurrent duplicates.
+    name: str | None = None
     cover_url: str | None = None
+    hltb_id: int | None = None
+    main_story_hours: float | None = None
+    main_extra_hours: float | None = None
+    completionist_hours: float | None = None
+    __table_args__ = (
+        CheckConstraint("hltb_id IS NULL OR hltb_id > 0", name="game_positive_hltb_id"),
+        CheckConstraint("hltb_id IS NOT NULL OR (main_story_hours IS NULL AND "
+                        "main_extra_hours IS NULL AND completionist_hours IS NULL)",
+                        name="game_hours_require_hltb_id"),
+        CheckConstraint("(main_story_hours IS NULL OR main_story_hours > 0) AND "
+                        "(main_extra_hours IS NULL OR main_extra_hours > 0) AND "
+                        "(completionist_hours IS NULL OR completionist_hours > 0)",
+                        name="game_positive_hours"),
+    )
 
 
 class CompletionStatus(str, Enum):
@@ -34,7 +49,6 @@ class CompletionStatus(str, Enum):
 
 class OwnedGame(SQLModel, table=True):
     # Each user can own each catalog game only once.
-    __tablename__ = "owned_games"
 
     user_id: int = Field(foreign_key="user.id", primary_key=True)
     game_id: int = Field(foreign_key="game.id", primary_key=True)
@@ -53,6 +67,47 @@ class OwnedGame(SQLModel, table=True):
             server_default=CompletionStatus.NOT_STARTED.value,
         ),
     )
+
+class EnrichmentStatus(str, Enum):
+    MATCHED = "matched"
+    AMBIGUOUS = "ambiguous"
+    NO_MATCH = "no_match"
+    LOOKUP_FAILED = "lookup_failed"
+
+
+class GameEnrichment(SQLModel, table=True):
+    """Durable lookup outcomes; review candidates live temporarily in Redis."""
+    game_id: int = Field(foreign_key="game.id", primary_key=True)
+    status: EnrichmentStatus = Field(sa_column=Column(SQLAlchemyEnum(
+        EnrichmentStatus, values_callable=lambda values: [v.value for v in values],
+        native_enum=False, create_constraint=True, name="enrichment_status",
+        validate_strings=True,
+    ), nullable=False))
+    reason: str
+    last_lookup_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+    last_success_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=True)))
+    last_error: str | None = None
+
+
+class PersonalHLTBOverride(SQLModel, table=True):
+    """An owner's selected candidate, independent of automatic refreshes."""
+    user_id: int = Field(primary_key=True)
+    game_id: int = Field(primary_key=True)
+    hltb_id: int
+    main_story_hours: float | None = None
+    main_extra_hours: float | None = None
+    completionist_hours: float | None = None
+    candidate: dict = Field(sa_column=Column(JSON, nullable=False))
+    selected_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+    __table_args__ = (
+        ForeignKeyConstraint(["user_id", "game_id"], ["ownedgame.user_id", "ownedgame.game_id"]),
+        CheckConstraint("hltb_id > 0", name="override_positive_hltb_id"),
+        CheckConstraint("(main_story_hours IS NULL OR main_story_hours > 0) AND "
+                        "(main_extra_hours IS NULL OR main_extra_hours > 0) AND "
+                        "(completionist_hours IS NULL OR completionist_hours > 0)",
+                        name="override_positive_hours"),
+    )
+
 
 class SteamLinkRequest(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)

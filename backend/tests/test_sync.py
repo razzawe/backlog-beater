@@ -7,7 +7,6 @@ import httpx
 from fastapi.testclient import TestClient
 from sqlmodel import SQLModel, Session, select
 
-from app.api.main import create_access_token
 from app.database import Game, OwnedGame, User, engine
 from sync_service.main import app
 from sync_service.steam import OwnedGames, insert_missing_games, sync_owned_games
@@ -15,6 +14,13 @@ from sync_service.steam import OwnedGames, insert_missing_games, sync_owned_game
 
 class SyncTests(unittest.TestCase):
     def setUp(self):
+        # Existing Steam tests must never contact the live HLTB service.
+        lookup = patch("sync_service.events.client.send_task")
+        lookup.start()
+        connection = patch("sync_service.events.client.connection_for_write")
+        connection.start()
+        self.addCleanup(connection.stop)
+        self.addCleanup(lookup.stop)
         # Only recreate the isolated test database.
         self.assertEqual(engine.url.database, "steam_test")
         SQLModel.metadata.drop_all(engine)
@@ -26,7 +32,7 @@ class SyncTests(unittest.TestCase):
             session.add(user)
             session.commit()
             self.user_id = user.id
-            self.headers = {"Authorization": f"Bearer {create_access_token(user.id)}"}
+            self.headers = {"X-User-ID": str(user.id)}
 
     def tearDown(self):
         self.client.__exit__(None, None, None)
@@ -46,8 +52,8 @@ class SyncTests(unittest.TestCase):
     def test_import_and_repeat(self):
         payload = {"response": {"game_count": 3, "games": [{"appid": 570}, {"appid": 730}, {"appid": 570}]}}
         # Repeated imports must not duplicate catalog entries or ownership links.
-        self.assertEqual(self.sync(payload).json(), {"game_count": 3, "inserted_count": 2, "ownerships_inserted_count": 2})
-        self.assertEqual(self.sync(payload).json(), {"game_count": 3, "inserted_count": 0, "ownerships_inserted_count": 0})
+        self.assertEqual({k: v for k, v in self.sync(payload).json().items() if k != "enrichment"}, {"game_count": 3, "inserted_count": 2, "ownerships_inserted_count": 2})
+        self.assertEqual({k: v for k, v in self.sync(payload).json().items() if k != "enrichment"}, {"game_count": 3, "inserted_count": 0, "ownerships_inserted_count": 0})
         with Session(engine) as session:
             self.assertEqual(sorted(game.steam_app_id for game in session.exec(select(Game))), [570, 730])
             links = session.exec(select(OwnedGame)).all()
@@ -63,7 +69,7 @@ class SyncTests(unittest.TestCase):
             self.assertEqual(session.exec(select(OwnedGame)).all(), [])
 
     def test_repeat_sync_preserves_updated_completion_status(self):
-        from app.main import app as api_app
+        from library_service.main import app as api_app
 
         payload = {"response": {"game_count": 1, "games": [{"appid": 570}]}}
         self.assertEqual(self.sync(payload).status_code, 200)
@@ -80,9 +86,29 @@ class SyncTests(unittest.TestCase):
             self.assertEqual(library.status_code, 200)
             self.assertEqual(library.json()[0]["completion_status"], "finished")
 
+    def test_exhausted_retries_preserve_existing_library(self):
+        self.sync({"response": {"game_count": 1, "games": [{"appid": 570}]}})
+        with Session(engine) as session:
+            ownership = session.exec(select(OwnedGame)).one()
+            ownership.completion_status = "finished"
+            session.add(ownership)
+            session.commit()
+        with patch("sync_service.steam.STEAM_API_KEY", "test-key"), \
+                patch("sync_service.steam.httpx.AsyncClient") as client, \
+                patch("sync_service.steam.asyncio.sleep", new_callable=AsyncMock):
+            get = client.return_value.__aenter__.return_value.get = AsyncMock(
+                side_effect=httpx.ReadTimeout("Steam timed out"))
+            response = self.client.post("/api/v1/steam/sync", headers=self.headers)
+            self.assertEqual(response.status_code, 504)
+            self.assertEqual(get.await_count, 4)
+        with Session(engine) as session:
+            self.assertEqual(len(session.exec(select(Game)).all()), 1)
+            ownership = session.exec(select(OwnedGame)).one()
+            self.assertEqual(ownership.completion_status, "finished")
+
     def test_empty_library(self):
         # An empty library creates no catalog entries or ownership links.
-        self.assertEqual(self.sync({"response": {"game_count": 0}}).json(), {"game_count": 0, "inserted_count": 0, "ownerships_inserted_count": 0})
+        self.assertEqual({k: v for k, v in self.sync({"response": {"game_count": 0}}).json().items() if k != "enrichment"}, {"game_count": 0, "inserted_count": 0, "ownerships_inserted_count": 0})
 
     def test_existing_game_can_belong_to_two_users(self):
         # A second user receives a new link to the same catalog entry.
@@ -180,3 +206,48 @@ class SyncTests(unittest.TestCase):
             self.assertEqual(sorted(future.result(timeout=20) for future in futures), [0, 2])
         with Session(engine) as session:
             self.assertEqual(len(session.exec(select(Game)).all()), 2)
+
+    def test_sync_refreshes_catalog_metadata_and_preserves_progress(self):
+        payload = {"response": {"game_count": 1, "games": [{"appid": 570, "name": "Dota 2"}]}}
+        first = self.sync(payload)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["inserted_count"], 1)
+        with Session(engine) as session:
+            game = session.exec(select(Game)).one()
+            self.assertEqual(game.name, "Dota 2")
+            self.assertEqual(game.cover_url, "https://cdn.akamai.steamstatic.com/steam/apps/570/header.jpg")
+            ownership = session.get(OwnedGame, (self.user_id, game.id))
+            ownership.completion_status = "finished"
+            session.add(ownership)
+            session.commit()
+        payload["response"]["games"][0]["name"] = "Updated title"
+        second = self.sync(payload)
+        self.assertEqual(second.json()["inserted_count"], 0)
+        from library_service.main import app as library_app
+        with TestClient(library_app) as client:
+            game = client.get("/api/v1/games", headers=self.headers).json()[0]
+            self.assertEqual(game["name"], "Updated title")
+            self.assertEqual(game["completion_status"], "finished")
+            self.assertTrue(game["cover_url"].endswith("/570/header.jpg"))
+
+    def test_sync_queues_after_import_without_inline_lookup(self):
+        with patch("sync_service.main.publish_games_imported") as queue:
+            from sync_service.events import ImportEventSubmission
+            def submit(ids):
+                with Session(engine) as session:
+                    self.assertEqual(session.exec(select(Game)).one().steam_app_id, 123)
+                    self.assertEqual(len(session.exec(select(OwnedGame)).all()), 1)
+                self.assertEqual(ids, [123])
+                return ImportEventSubmission(submitted=True)
+            queue.side_effect = submit
+            response = self.sync({"response": {"game_count": 1, "games": [{"appid": 123, "name": "Example"}]}})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["enrichment"], {"submitted": True, "unavailable": False})
+
+    def test_broker_failure_does_not_undo_successful_sync(self):
+        with patch("sync_service.events.client.connection_for_write", side_effect=RuntimeError("offline")):
+            result = self.sync({"response": {"game_count": 1, "games": [{"appid": 123, "name": "Example"}]}})
+        self.assertEqual(result.status_code, 200)
+        self.assertTrue(result.json()["enrichment"]["unavailable"])
+        with Session(engine) as session:
+            self.assertEqual(len(session.exec(select(OwnedGame)).all()), 1)

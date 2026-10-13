@@ -6,11 +6,12 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from app.api.main import get_current_user
+from app.core.identity import get_gateway_user
 from app.core.config import APP_PUBLIC_URL, STEAM_CALLBACK_URL, STEAM_OPENID_URL
 from app.database import SteamLinkRequest, SteamOpenIDNonce, User, get_session
 
@@ -54,7 +55,7 @@ def steam_return_to(state: str) -> str:
 @steam_router.post("/link", response_model=SteamLinkResponse)
 def start_steam_link(
     response: Response,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_gateway_user),
     session: Session = Depends(get_session),
 ) -> SteamLinkResponse:
     """Start Steam account linking for an authenticated, unlinked user.
@@ -62,8 +63,6 @@ def start_steam_link(
     # Only an authenticated, unlinked account can start linking.
     if current_user.steam_id is not None:
         raise HTTPException(status_code=409, detail="Steam account already linked")
-    if current_user.id is None:
-        raise HTTPException(status_code=500, detail="User has no database ID")
 
     # Bind a ten-minute request to both the local user and this browser.
     state = token_urlsafe(32)
@@ -203,4 +202,9 @@ def finish_steam_link(
     # Remove temporary browser proof after a successful link.
     response.delete_cookie(STEAM_LINK_COOKIE, **COOKIE_OPTIONS)
     response.headers["Cache-Control"] = "no-store"
+    if "text/html" in request.headers.get("accept", ""):
+        redirect = RedirectResponse("/?steam=linked", status_code=303)
+        redirect.delete_cookie(STEAM_LINK_COOKIE, **COOKIE_OPTIONS)
+        redirect.headers["Cache-Control"] = "no-store"
+        return redirect
     return SteamLinkedResponse(steam_id=steam_id)

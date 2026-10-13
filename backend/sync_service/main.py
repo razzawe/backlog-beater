@@ -3,9 +3,11 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from app.api.main import get_current_user
+from app.core.identity import get_gateway_user
 from app.database import User, engine
 from sync_service.steam import OwnedGames, get_owned_games, sync_owned_games
+
+from sync_service.events import ImportEventSubmission, publish_games_imported
 
 
 # Separate application for Steam library syncing.
@@ -18,11 +20,12 @@ class SyncResult(BaseModel):
     # Catalog entries are shared by all users; ownership links belong to this user.
     inserted_count: int
     ownerships_inserted_count: int
+    enrichment: ImportEventSubmission
 
 
 @app.post("/api/v1/steam/sync", response_model=SyncResult)
 async def sync_games(
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_gateway_user),
 ) -> SyncResult:
     """Fetch and store the authenticated user's linked Steam library.
     Commit catalog and ownership inserts atomically and return their counts."""
@@ -30,19 +33,24 @@ async def sync_games(
     if user.steam_id is None:
         raise HTTPException(status_code=409, detail="Connect Steam before syncing")
     # Ownership records require the internal database ID, not the Steam ID.
-    if user.id is None:
-        raise HTTPException(status_code=500, detail="User has no database ID")
     # Fetch and validate Steam's response before starting any library writes.
     library = await get_owned_games(user.steam_id)
     # The synchronous database work runs in a worker thread to avoid blocking
     # the event loop while other requests are being handled.
+
+    # Save the library before publishing any background work.
     inserted, ownerships_inserted = await run_in_threadpool(
         save_library, user.id, library,
+    )
+    # Submission failures are reported without undoing the committed import.
+    enrichment = await run_in_threadpool(
+        publish_games_imported, sorted({game.appid for game in library.games}),
     )
     return SyncResult(
         game_count=library.game_count,
         inserted_count=inserted,
         ownerships_inserted_count=ownerships_inserted,
+        enrichment=enrichment,
     )
 
 
@@ -60,3 +68,8 @@ def save_library(user_id: int, library: OwnedGames) -> tuple[int, int]:
             session.rollback()
             raise
         return inserted, ownerships_inserted
+
+
+@app.get("/internal/health", include_in_schema=False)
+def health():
+    return {"status": "ok"}
