@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 
 from sqlalchemy import CheckConstraint, Column, DateTime, Enum as SQLAlchemyEnum, ForeignKeyConstraint, JSON
@@ -67,6 +67,18 @@ class OwnedGame(SQLModel, table=True):
             server_default=CompletionStatus.NOT_STARTED.value,
         ),
     )
+
+class PlayQueueEntry(SQLModel, table=True):
+    user_id: int = Field(primary_key=True)
+    game_id: int = Field(primary_key=True)
+    position: int
+    added_at: datetime = Field(default_factory=lambda: datetime.now(UTC),
+                               sa_column=Column(DateTime(timezone=True), nullable=False))
+    __table_args__ = (
+        ForeignKeyConstraint(["user_id", "game_id"], ["ownedgame.user_id", "ownedgame.game_id"], ondelete="CASCADE"),
+        CheckConstraint("position >= 0", name="queue_nonnegative_position"),
+    )
+
 
 class EnrichmentStatus(str, Enum):
     MATCHED = "matched"

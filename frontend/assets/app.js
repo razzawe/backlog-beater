@@ -1,7 +1,7 @@
 import { enrichmentProgress } from './enrichment.js';
-import { STATUSES, summarize, selectGames, safeCoverUrl, formatHours } from './library.js';
+import { STATUSES, summarize, selectGames, safeCoverUrl, formatHours, enrichmentAssessment, enrichmentReason } from './library.js';
 const $ = id => document.getElementById(id);
-const state = { token: sessionStorage.getItem('backlog-token'), user: null, games: [], filter: 'all', mode: 'login', generation: 0, loading: false };
+const state = { token: sessionStorage.getItem('backlog-token'), user: null, games: [], queue: [], planBusy: false, filter: 'all', mode: 'login', generation: 0, loading: false };
 const labels = { 'not started': 'Not started', 'in progress': 'Playing', finished: 'Finished' };
 function notice(message, error = false) { $('notice').textContent = message; $('notice').classList.toggle('error', error); $('notice').hidden = !message; }
 let enrichmentTimer;
@@ -36,10 +36,10 @@ function startEnrichment(previousFailures, started = Date.now()) {
     try {
       // Do not replace controls during a status edit, sync, or match review.
       if (!document.hidden && !state.loading && !$('hltb-review').open
-          && !$('game-grid').contains(document.activeElement)) {
+          && !$('library-view').contains(document.activeElement)) {
         const games = await api('/games');
         if (enrichmentRun !== run || state.generation !== run.generation) return;
-        if (state.loading || $('hltb-review').open || $('game-grid').contains(document.activeElement)) {
+        if (state.loading || $('hltb-review').open || $('library-view').contains(document.activeElement)) {
           enrichmentTimer = setTimeout(poll, 3000); return;
         }
         const old = new Map(state.games.map(game => [game.id, game]));
@@ -63,7 +63,7 @@ function view(name) {
 function signout(message = '') {
   stopEnrichment(); $('enrichment-progress').hidden = true;
   if ($('hltb-review').open) $('hltb-review').close();
-  state.generation++; state.token = null; state.user = null; state.games = []; state.loading = false;
+  state.generation++; state.token = null; state.user = null; state.games = []; state.queue = []; state.planBusy = false; state.loading = false;
   sessionStorage.removeItem('backlog-token'); refreshAccount(); renderLibrary(); view('account'); notice(message);
 }
 async function api(path, { method = 'GET', body, authenticated = true } = {}) {
@@ -96,9 +96,18 @@ function refreshAccount() {
   $('sync-button').disabled = !user?.steam_id || state.loading;
 }
 function renderLibrary() {
+  renderPlan();
   const stats = summarize(state.games);
   for (const [id, value] of Object.entries({ 'total-count': stats.total, 'progress-count': stats.playing, 'finished-count': stats.finished, 'library-badge': stats.total, 'completion-count': `${stats.percent}%` })) $(id).textContent = value;
   $('completion-bar').style.width = `${stats.percent}%`;
+  for (const kind of ['review', 'missing']) {
+    $(kind + '-count').textContent = state.games.filter(game => enrichmentAssessment(game) === kind).length;
+  }
+  $('assessment-copy').hidden = !['review', 'missing'].includes(state.filter);
+  $('assessment-copy').textContent = state.filter === 'review'
+    ? 'Choose an HLTB match for these games. Your progress and Play Next order stay saved.'
+    : 'Games with failed lookups, no match, or no usable completion estimates.';
+  document.querySelectorAll('[data-filter]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.filter === state.filter)));
   const selected = selectGames(state.games, state.filter, $('search').value, $('sort').value);
   $('game-grid').replaceChildren(...selected.map(gameCard));
   $('empty-state').hidden = selected.length > 0;
@@ -107,6 +116,7 @@ function renderLibrary() {
   else if (!state.user) { title = 'Your next chapter starts here'; copy = 'Sign in, connect Steam, and bring your library together. Your backlog is full of possibilities.'; action = 'Get started ↗'; }
   else if (!state.user.steam_id) { title = 'Bring your Steam library along'; copy = 'Connect Steam to import your games and start tracking your progress.'; action = 'Connect Steam ↗'; }
   else if (!state.games.length) { title = 'Ready when you are'; copy = 'Your Steam account is connected. Sync your library to bring in your games.'; action = 'Sync Steam library ↻'; }
+  else if (['review', 'missing'].includes(state.filter)) { title = state.filter === 'review' ? 'No games need review' : 'No missing completion data'; copy = $('search').value ? 'No games in this area match your search.' : 'Games will appear here when they need attention.'; action = 'Clear filters'; }
   else { title = 'No games match just yet'; copy = 'Try another app ID or progress filter.'; action = 'Clear filters'; }
   $('empty-title').textContent = title; $('empty-copy').textContent = copy; $('empty-action').hidden = !action; $('empty-action').textContent = action || '';
 }
@@ -121,10 +131,10 @@ function gameCard(game) {
   const title = document.createElement('h3'); title.textContent = game.name || `Steam app ${game.steam_app_id}`;
   const link = document.createElement('a'); link.href = `https://store.steampowered.com/app/${game.steam_app_id}/`; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'View on Steam ↗';
   const select = document.createElement('select'); select.setAttribute('aria-label', `Completion status for Steam app ${game.steam_app_id}`);
-  STATUSES.forEach(status => { const option = document.createElement('option'); option.value = status; option.textContent = labels[status]; select.append(option); }); select.value = game.completion_status;
+  STATUSES.forEach(status => { const option = document.createElement('option'); option.value = status; option.textContent = labels[status]; select.append(option); }); select.value = game.completion_status; select.disabled = state.planBusy || state.loading;
   select.addEventListener('change', async () => {
     select.disabled = true; const generation = state.generation;
-    try { const updated = await api(`/games/${game.id}`, { method: 'PATCH', body: { completion_status: select.value } }); if (generation !== state.generation) return; Object.assign(game, updated); renderLibrary(); notice('Progress saved. One game at a time.'); }
+    try { const updated = await api(`/games/${game.id}`, { method: 'PATCH', body: { completion_status: select.value } }); if (generation !== state.generation) return; Object.assign(game, updated); state.queue = state.queue.filter(id => id !== game.id || updated.completion_status !== 'in progress'); renderLibrary(); notice('Progress saved. One game at a time.'); }
     catch (error) { select.value = game.completion_status; notice(error.message, true); }
     finally { select.disabled = false; }
   });
@@ -144,12 +154,106 @@ function gameCard(game) {
     if (game.hltb_source === 'personal') { const note = document.createElement('span'); note.textContent = 'Your selected match'; source.append(note); }
   } else { source.textContent = 'Completion estimates unavailable'; }
   info.append(title, link, estimates, source);
+  const reason = enrichmentReason(game);
+  if (reason) {
+    const assessment = document.createElement('p'); assessment.className = 'assessment-reason';
+    assessment.textContent = reason; info.append(assessment);
+  }
   if (game.hltb_review_needed) {
     const review = document.createElement('button'); review.className = 'button secondary review-button';
     review.textContent = 'Resolve HLTB match'; review.addEventListener('click', () => openHLTBReview(game, review));
     info.append(review);
   }
-  info.append(select); card.append(cover, info); return card;
+  info.append(select);
+  if (game.completion_status !== 'in progress') {
+    info.append(planButton('Start Playing', () => startPlaying(game)));
+    const queued = state.queue.includes(game.id);
+    info.append(planButton(queued ? 'In Play Next' : 'Add to Play Next', () => changeQueue('/games/queue/' + game.id, 'POST'), queued));
+  }
+  card.append(cover, info); return card;
+}
+function planButton(label, action, disabled = false) {
+  const button = document.createElement('button'); button.type = 'button';
+  button.className = 'button secondary'; button.textContent = label;
+  button.disabled = disabled || state.planBusy || state.loading;
+  button.addEventListener('click', action); return button;
+}
+async function planAction(action) {
+  if (state.planBusy) return;
+  const generation = state.generation;
+  state.planBusy = true; renderLibrary();
+  try { await action(generation); if (generation === state.generation) notice('Play plan saved.'); }
+  catch (error) {
+    if (generation === state.generation) {
+      notice(error.message, true);
+      try { await loadLibrary(); } catch { /* Preserve action error. */ }
+    }
+  } finally { if (generation === state.generation) { state.planBusy = false; renderLibrary(); } }
+}
+function changeQueue(path, method, body) {
+  return planAction(async generation => {
+    const queue = await api(path, { method, body });
+    if (generation === state.generation) state.queue = queue;
+  });
+}
+function startPlaying(game) {
+  return planAction(async generation => {
+    const updated = await api('/games/' + game.id, { method: 'PATCH', body: { completion_status: 'in progress' } });
+    if (generation !== state.generation) return;
+    Object.assign(game, updated); state.queue = state.queue.filter(id => id !== game.id);
+  });
+}
+function moveQueued(index, offset) {
+  const game_ids = [...state.queue];
+  [game_ids[index], game_ids[index + offset]] = [game_ids[index + offset], game_ids[index]];
+  return changeQueue('/games/queue', 'PUT', { game_ids });
+}
+function renderPlan() {
+  $('play-plan').hidden = !state.user;
+  const playing = state.games.filter(game => game.completion_status === 'in progress');
+  $('currently-playing').replaceChildren(...playing.map(gameCard));
+  $('playing-empty').hidden = playing.length > 0;
+  const games = new Map(state.games.map(game => [game.id, game]));
+  $('play-next').replaceChildren(...state.queue.flatMap((id, index) => {
+    const game = games.get(id); if (!game) return [];
+    const item = document.createElement('li'); item.className = 'queue-item';
+    const name = game.name || 'Steam app ' + game.steam_app_id;
+    const cover = document.createElement('div'); cover.className = 'game-cover queue-cover';
+    cover.style.setProperty('--hue', String((game.steam_app_id * 47) % 360));
+    const fallback = document.createElement('span'); fallback.className = 'cover-placeholder';
+    fallback.textContent = String(game.steam_app_id); cover.append(fallback);
+    const url = safeCoverUrl(game.cover_url);
+    if (url) {
+      const img = document.createElement('img'); img.src = url; img.alt = 'Cover for ' + name;
+      img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; fallback.hidden = true;
+      img.onerror = () => { img.remove(); fallback.hidden = false; }; cover.append(img);
+    }
+    const rank = document.createElement('span'); rank.className = 'queue-rank';
+    rank.textContent = String(index + 1); rank.setAttribute('aria-label', 'Queue position ' + (index + 1)); cover.append(rank);
+    const info = document.createElement('div'); info.className = 'queue-info';
+    const title = document.createElement('h3'); title.textContent = name; title.title = name;
+    const estimates = document.createElement('dl'); estimates.className = 'completion-times queue-times';
+    estimates.setAttribute('aria-label', 'Estimated completion times for ' + name);
+    for (const [label, field] of [['Main story', 'main_story_hours'], ['Main + extras', 'main_extra_hours'], ['Completionist', 'completionist_hours']]) {
+      const row = document.createElement('div');
+      const term = document.createElement('dt'); term.textContent = label;
+      const value = document.createElement('dd'); value.textContent = formatHours(game[field]);
+      row.append(term, value); estimates.append(row);
+    }
+    const estimateNote = document.createElement('p'); estimateNote.className = 'queue-estimate-note';
+    estimateNote.textContent = game.hltb_source === 'personal' ? 'HLTB estimates · Your selected match' : game.hltb_id ? 'HLTB estimates' : 'Completion estimates unavailable';
+    const start = planButton('Start Playing', () => startPlaying(game)); start.classList.add('queue-start');
+    const actions = document.createElement('div'); actions.className = 'queue-actions';
+    const earlier = planButton('\u2190', () => moveQueued(index, -1), index === 0);
+    const later = planButton('\u2192', () => moveQueued(index, 1), index === state.queue.length - 1);
+    const remove = planButton('\u00d7', () => changeQueue('/games/queue/' + id, 'DELETE'));
+    for (const [button, label] of [[earlier, 'Move ' + name + ' earlier'], [later, 'Move ' + name + ' later'], [remove, 'Remove ' + name + ' from Play Next']]) {
+      button.setAttribute('aria-label', label); button.title = label;
+    }
+    remove.classList.add('queue-remove'); actions.append(earlier, later, remove);
+    info.append(title, estimates, estimateNote, start, actions); item.append(cover, info); return [item];
+  }));
+  $('queue-empty').hidden = state.queue.length > 0;
 }
 let reviewSequence = 0;
 $('hltb-review').addEventListener('close', () => { reviewSequence++; });
@@ -219,7 +323,7 @@ async function openHLTBReview(game, trigger) {
 async function loadLibrary() {
   const generation = state.generation;
   state.loading = true; refreshAccount(); renderLibrary();
-  try { const games = await api('/games'); if (generation === state.generation) state.games = games; }
+  try { const [games, queue] = await Promise.all([api('/games'), api('/games/queue')]); if (generation === state.generation) { state.games = games; state.queue = queue; } }
   finally { if (generation === state.generation) { state.loading = false; refreshAccount(); renderLibrary(); } }
 }
 async function sync() {

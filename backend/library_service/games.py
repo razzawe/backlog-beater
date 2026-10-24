@@ -6,6 +6,8 @@ from sqlmodel import Session, select
 
 from app.core.identity import get_gateway_user_id
 from app.database import CompletionStatus, EnrichmentStatus, Game, GameEnrichment, OwnedGame, PersonalHLTBOverride, get_session
+from app.database import PlayQueueEntry
+from library_service.queue import lock_owner
 
 
 # Group endpoints for the authenticated user's stored library.
@@ -59,6 +61,7 @@ def update_completion_status(
     session: Session = Depends(get_session),
 ) -> OwnedGameResponse:
     """Update completion status for a game owned by the authenticated user."""
+    lock_owner(session, user_id)
     ownership = session.get(OwnedGame, (user_id, game_id))
     if ownership is None:
         raise HTTPException(status_code=404, detail="Owned game not found")
@@ -66,6 +69,10 @@ def update_completion_status(
     game = session.get(Game, game_id)
     ownership.completion_status = body.completion_status
     session.add(ownership)
+    if body.completion_status == CompletionStatus.IN_PROGRESS:
+        queued = session.get(PlayQueueEntry, (user_id, game_id))
+        if queued is not None:
+            session.delete(queued)
     session.commit()
     override = session.get(PersonalHLTBOverride, (user_id, game_id))
     return _response(game, ownership, override, session.get(GameEnrichment, game_id))

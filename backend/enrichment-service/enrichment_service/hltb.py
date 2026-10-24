@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import unicodedata
 from dataclasses import dataclass
 
 from howlongtobeatpy import HowLongToBeat
@@ -68,14 +69,24 @@ def _candidate(entry) -> HLTBCandidate:
     )
 
 
+def normalize_search_title(title: str) -> str:
+    """Clean presentation symbols without changing title wording or case."""
+    if not isinstance(title, str):
+        raise ValueError("A nonempty game title is required")
+    title = unicodedata.normalize("NFC", title).translate(str.maketrans("", "", "\u2122\u00ae\u00a9"))
+    title = " ".join(title.split())
+    if not title:
+        raise ValueError("A nonempty game title is required")
+    return title
+
+
 async def lookup_candidates(title: str, *, timeout_seconds: float = 20) -> list[HLTBCandidate]:
     """Return all provider search candidates, or raise on failure.
 
     An empty list means the search succeeded without results. No candidate is
     selected here. External task cancellation propagates to the caller.
     """
-    if not isinstance(title, str) or not title.strip():
-        raise ValueError("A nonempty game title is required")
+    title = normalize_search_title(title)
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("Lookup timeout must be positive and finite")
     try:

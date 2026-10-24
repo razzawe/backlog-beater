@@ -84,6 +84,17 @@ versioned events without importing enrichment implementation code.
 - [ ] Add rate limiting, bounded retries, timeouts, and handling for wrapper/upstream changes.
 - [ ] Test matching and enrichment failures with mocked HLTB responses.
 
+## Enrichment assessment and matching follow-up
+
+- [ ] Redesign access to Needs Review and Missing Completion Data: the user dislikes the current buttons and wants them changed. Propose an alternative navigation/presentation before implementing the redesign; retain access to both assessment views and their counts.
+
+- [x] Clean trademark symbols and whitespace before HLTB search while preserving meaningful title wording.
+- [x] Ignore explicitly typed DLC/expansion competitors only when a unique exact base-game match exists; preserve review for uncertain near titles and prefix differences.
+- [x] Add Needs Review and Missing Completion Data library views with counts, reasons, search, and the existing candidate-review modal. Pending games remain distinct; usable personal estimates resolve shared ambiguity.
+- [ ] Add ownership-checked retry/reassessment endpoints with duplicate protection for failed, no-match, and missing-estimate outcomes.
+- [ ] After recovery support is implemented, explicitly refresh Wildlands and Breakpoint; do not automatically rerun the catalog.
+- [ ] Visually verify assessment views in a connected browser (no browser surface was available during implementation).
+
 ## Image processing and S3 storage
 
 - [ ] Build an image worker with Celery and a dedicated Redis queue.
@@ -97,6 +108,17 @@ versioned events without importing enrichment implementation code.
 - [ ] Test image download, upload, and object-key persistence with mocked external services.
 
 ## Personal library and completion tracking
+
+### Currently playing and play-next queue
+
+Functional goal: users can choose the single-player games they are currently playing and maintain a personal, ordered queue of games to play next.
+
+- [x] Let users select multiple owned single-player games for a dedicated Currently Playing view; reuse the existing in-progress completion status where possible.
+- [x] Let users add owned games to a personal Play Next queue, view its saved order, reorder entries, and remove entries without removing games from their library.
+- [x] Let users start a queued game: mark it as currently playing and remove it from Play Next. Do not automatically start another game when one is finished.
+- [x] Prevent duplicate entries in a user's queue; keep each user's current games and queue independent, persistent across sessions, and preserved through Steam syncs.
+- [ ] Decide how single-player eligibility is identified; allow manual selection while verified game-mode metadata is unavailable.
+- [x] Verify ownership checks, user isolation, saved queue order, and transitions between queued, currently playing, and finished games. Validated October 23, 2026: 118 backend tests and eight frontend tests pass; migration 005 applied locally and library service rebuilt. Visual browser QA remains pending.
 
 - [x] Return only the authenticated user's games.
 - [x] Store completion_status per user and game: not started, in progress, or finished.

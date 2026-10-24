@@ -181,4 +181,5 @@ networks:
 
 volumes:
   postgres_data:
+    name: backlog-beater-postgres-data-v2
   enrichment_redis_data:

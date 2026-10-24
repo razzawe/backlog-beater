@@ -378,3 +378,44 @@ ownership fingerprints confirmed all 115 records in each table unchanged;
 personal override data was unchanged. All shared-model images were refreshed.
 A real review of Half-Life 2: Deathmatch returned HTTP 202, then a cached candidate
 with a TTL near 86400 seconds; repeat review reused its cache version.
+
+## Currently Playing and Play Next
+
+Currently Playing uses the existing `in progress` completion status. Multiple games
+can be active. Users manually choose single-player games until verified game-mode
+metadata is available. Play Next is a separate personal ordered queue; completed
+games can be queued for replay, while active games cannot be queued.
+
+Authenticated library routes (already covered by the gateway's `/games/` route):
+- `GET /api/v1/games/queue`: ordered catalog game IDs.
+- `POST /api/v1/games/queue/{id}`: append an owned game, idempotently.
+- `DELETE /api/v1/games/queue/{id}`: remove a queue entry, idempotently.
+- `PUT /api/v1/games/queue`: `{ "game_ids": [...] }`, a complete permutation of
+  the current queue; conflicts return 409 and require a refresh.
+- Existing `PATCH /api/v1/games/{id}` with `in progress` starts a game and removes
+  its queue entry in the same transaction. Finishing does not start another game.
+
+Apply `backend/migrations/005_add_play_queue.sql` before serving the new UI against
+an existing database. It only creates a table and preserves existing library data.
+All queue mutations and completion updates lock the account row to serialize
+simultaneous edits. Queue data is independent of Steam import updates.
+Recommendations remain a separate future service; accepting a recommendation
+can use these same library actions.
+
+## Enrichment assessment views and search matching
+
+The library has Needs Review and Missing Completion Data views with counts and
+search support. Ambiguous games open the existing selection modal. Failed/no-match
+lookups and resolved matches without any usable estimates appear under missing
+data. Pending lookups remain labeled pending; valid personal estimates resolve an
+ambiguous shared outcome, while personal matches without estimates remain missing.
+These are views of existing ownership, not separate collections.
+
+Search queries now remove trademark symbols and collapse whitespace before HLTB
+requests, preserving subtitles, edition names and numbers. An exact base-game
+match can ignore competing entries explicitly labeled `dlc` or `expansion`;
+unknown entry types and near-title base games still require review. Verified live
+Wildlands metadata labels Narco Road and Fallen Ghosts as `dlc`.
+
+Retry/reassessment endpoints and automatic reprocessing of saved outcomes are
+outside this change. Existing no-match/failed records are not refreshed by deployment.

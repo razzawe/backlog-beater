@@ -40,6 +40,16 @@ class HLTBLookupTests(unittest.IsolatedAsyncioTestCase):
         self.provider.assert_called_once_with(input_minimum_similarity=0.0, input_auto_filter_times=False)
         self.search.assert_awaited_once_with("Example", similarity_case_sensitive=False)
 
+    async def test_cleans_search_query_without_losing_title_identity(self):
+        self.search.return_value = []
+        await lookup_candidates("  Tom Clancy's Ghost Recon\u00ae Wildlands\u2122\t ")
+        self.search.assert_awaited_once_with("Tom Clancy's Ghost Recon Wildlands", similarity_case_sensitive=False)
+        self.search.reset_mock()
+        await lookup_candidates("Example II: Deluxe Edition")
+        self.search.assert_awaited_once_with("Example II: Deluxe Edition", similarity_case_sensitive=False)
+        with self.assertRaises(ValueError):
+            await lookup_candidates("\u00ae\u2122\u00a9")
+
     async def test_missing_and_zero_estimates_are_unknown(self):
         parser = JSONResultParser("Example", "https://howlongtobeat.com/game/", 0)
         self.search.return_value = [parser.parse_json_element({

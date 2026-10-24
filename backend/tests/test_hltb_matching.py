@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "enrichment-service"))
 
 from enrichment_service.hltb import HLTBCandidate
-from enrichment_service.matching import MatchStatus, match_candidates, normalize_title
+from enrichment_service.matching import MatchStatus, match_candidates, normalize_title, review_match_candidates
 
 
 def candidate(name="Example", **changes):
@@ -97,3 +97,28 @@ class HLTBMatchingTests(unittest.TestCase):
                 match_candidates("Example", [], release_year=year)
         with self.assertRaises(ValueError):
             match_candidates("Example", [], platform=" ")
+
+
+class ReviewMatchingRegressionTests(unittest.TestCase):
+    def test_exact_base_game_ignores_explicit_addons(self):
+        title = "Tom Clancy's Ghost Recon Wildlands"
+        base = candidate(title)
+        addons = [candidate(title + ' - Narco Road', hltb_id=2, game_type='dlc'),
+                  candidate(title + ' - Fallen Ghosts', hltb_id=3, game_type='expansion')]
+        result = review_match_candidates(title + '\u00ae', [base, *addons])
+        self.assertEqual(result.status, MatchStatus.MATCHED)
+        self.assertEqual(result.candidate, base)
+
+    def test_uncertain_competitors_still_require_review(self):
+        for kind in (None, 'unknown', 'game'):
+            result = review_match_candidates('Ghost Recon Wildlands', [candidate('Ghost Recon Wildlands'), candidate('Ghost Recon Wildlands Remastered', hltb_id=2, game_type=kind)])
+            self.assertEqual(result.status, MatchStatus.AMBIGUOUS)
+
+    def test_breakpoint_prefix_requires_review(self):
+        result = review_match_candidates('Ghost Recon Breakpoint', [candidate("Tom Clancy's Ghost Recon Breakpoint")])
+        self.assertEqual(result.status, MatchStatus.AMBIGUOUS)
+        self.assertEqual(len(result.candidates), 1)
+
+    def test_exact_dlc_is_not_automatically_accepted(self):
+        result = review_match_candidates('Example', [candidate(game_type='dlc')])
+        self.assertEqual(result.status, MatchStatus.AMBIGUOUS)

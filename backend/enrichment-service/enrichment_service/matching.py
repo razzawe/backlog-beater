@@ -1,11 +1,10 @@
 """Conservative matching of Steam titles to already-fetched HLTB candidates."""
 
-import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 
-from .hltb import HLTBCandidate
+from .hltb import HLTBCandidate, normalize_search_title
 
 
 class MatchStatus(str, Enum):
@@ -29,13 +28,7 @@ def normalize_title(title: str) -> str:
     Punctuation, numbers, accents, subtitles and edition labels are preserved.
     NFC handles equivalent Unicode spellings without collapsing Roman numerals.
     """
-    if not isinstance(title, str):
-        raise ValueError("A nonempty game title is required")
-    title = unicodedata.normalize("NFC", title).translate(str.maketrans("", "", "™®©"))
-    normalized = " ".join(title.casefold().split())
-    if not normalized:
-        raise ValueError("A nonempty game title is required")
-    return normalized
+    return normalize_search_title(title).casefold()
 
 
 def match_candidates(
@@ -91,6 +84,15 @@ def review_match_candidates(title: str, candidates: Iterable[HLTBCandidate]) -> 
         return " ".join(re.sub(r"[^\w\s]", " ", normalize_title(value)).split())
 
     query = search_title(title)
+    candidates = tuple(candidates)
+    exact_base = match_candidates(title, candidates)
+    if (exact_base.status == MatchStatus.MATCHED
+            and (exact_base.candidate.game_type or "").strip().casefold() == "game"):
+        # Only explicit add-on metadata can stop competing with an exact base
+        # game. Unknown types, editions and remakes still require review.
+        candidates = tuple(c for c in candidates
+            if (c.game_type or "").strip().casefold() not in {"dlc", "expansion"}
+            or normalize_title(c.name) == normalize_title(title))
     ranked = {}
     for candidate in candidates:
         names = [candidate.name] + ([candidate.alias] if candidate.alias and candidate.alias.strip() else [])
