@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from howlongtobeatpy import HowLongToBeat
 
+from .titles import normalize_search_title
+
 
 class HLTBLookupError(Exception):
     """The provider failed or returned unusable data; this is not 'no match'."""
@@ -39,7 +41,7 @@ def _hours(value: object) -> float | None:
     return float(value) if value > 0 else None
 
 
-def _candidate(entry) -> HLTBCandidate:
+def _candidate(entry) -> HLTBCandidate: #validating candidate fields
     if type(entry.game_id) is not int or entry.game_id <= 0:
         raise ValueError("Invalid HLTB ID")
     if not isinstance(entry.game_name, str) or not entry.game_name.strip():
@@ -74,8 +76,7 @@ async def lookup_candidates(title: str, *, timeout_seconds: float = 20) -> list[
     An empty list means the search succeeded without results. No candidate is
     selected here. External task cancellation propagates to the caller.
     """
-    if not isinstance(title, str) or not title.strip():
-        raise ValueError("A nonempty game title is required")
+    query = normalize_search_title(title)
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("Lookup timeout must be positive and finite")
     try:
@@ -83,12 +84,12 @@ async def lookup_candidates(title: str, *, timeout_seconds: float = 20) -> list[
             # Disable wrapper similarity filtering so our future matcher can
             # inspect every returned candidate. Keep original time categories.
             provider = HowLongToBeat(input_minimum_similarity=0.0, input_auto_filter_times=False)
-            entries = await provider.async_search(title.strip(), similarity_case_sensitive=False)
+            entries = await provider.async_search(query, similarity_case_sensitive=False)
         if entries is None:
             raise HLTBLookupError("HLTB lookup failed")
         if not isinstance(entries, list):
             raise HLTBLookupError("HLTB returned an invalid candidate list")
-        return [_candidate(entry) for entry in entries]
+        return [_candidate(entry) for entry in entries] # returning all entries that match type of candidate
     except TimeoutError as error:
         raise HLTBLookupTimeout("HLTB lookup timed out") from error
     except HLTBLookupError:

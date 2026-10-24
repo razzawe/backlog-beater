@@ -1,11 +1,11 @@
 """Conservative matching of Steam titles to already-fetched HLTB candidates."""
 
-import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 
 from .hltb import HLTBCandidate
+from .titles import normalize_search_title
 
 
 class MatchStatus(str, Enum):
@@ -29,13 +29,7 @@ def normalize_title(title: str) -> str:
     Punctuation, numbers, accents, subtitles and edition labels are preserved.
     NFC handles equivalent Unicode spellings without collapsing Roman numerals.
     """
-    if not isinstance(title, str):
-        raise ValueError("A nonempty game title is required")
-    title = unicodedata.normalize("NFC", title).translate(str.maketrans("", "", "™®©"))
-    normalized = " ".join(title.casefold().split())
-    if not normalized:
-        raise ValueError("A nonempty game title is required")
-    return normalized
+    return normalize_search_title(title).casefold()
 
 
 def match_candidates(

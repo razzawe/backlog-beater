@@ -43,6 +43,8 @@ async def sync_games(
         save_library, user.id, library,
     )
     # Submission failures are reported without undoing the committed import.
+
+    # Send Steam app IDs to Redis Queue 
     enrichment = await run_in_threadpool(
         publish_games_imported, sorted({game.appid for game in library.games}),
     )

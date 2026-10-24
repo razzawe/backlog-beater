@@ -56,6 +56,12 @@ class HLTBLookupTests(unittest.IsolatedAsyncioTestCase):
         self.search.return_value = []
         self.assertEqual(await lookup_candidates("Example"), [])
 
+    async def test_normalizes_query_before_search_preserving_meaningful_wording(self):
+        self.search.return_value = []
+        await lookup_candidates("  Cafe\u0301™\t II®:  Definitive\nEdition©  ")
+        self.search.assert_awaited_once_with(
+            "Café II: Definitive Edition", similarity_case_sensitive=False)
+
     async def test_invalid_estimates_reject_the_response(self):
         parser = JSONResultParser("Example", "https://howlongtobeat.com/game/", 0)
         entry = parser.parse_json_element({"game_id": 123, "game_name": "Example"})
@@ -94,7 +100,7 @@ class HLTBLookupTests(unittest.IsolatedAsyncioTestCase):
             await lookup_candidates("Example")
 
     async def test_invalid_inputs_never_call_provider(self):
-        for title in ("", "   ", None):
+        for title in ("", "   ", None, " ™®© "):
             with self.assertRaises(ValueError):
                 await lookup_candidates(title)
         for timeout in (0, -1, float("inf"), float("nan")):
