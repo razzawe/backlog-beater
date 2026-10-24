@@ -95,6 +95,65 @@ versioned events without importing enrichment implementation code.
 - [ ] After recovery support is implemented, explicitly refresh Wildlands and Breakpoint; do not automatically rerun the catalog.
 - [ ] Visually verify assessment views in a connected browser (no browser surface was available during implementation).
 
+## Recommendation
+
+MVP goal: help a user choose an owned single-player game that fits their weekly
+time budget, target completion window, preferred genres, and completion goal.
+Work through the checklist in order. Example acceptance case: 4 hours/week,
+3 weeks, Action + Adventure, Main story produces suggestions estimated at no
+more than 12 hours, with reasons and approximate weeks to finish.
+
+### 1. Confirm product decisions
+
+- [ ] Confirm whether games already in Play Next should be excluded from fresh recommendations or included with a queued label. Proposed default: exclude them from Pick my next game.
+- [ ] Confirm whether preferred genres are ranking preferences or mandatory filters, and whether matching either selected genre is sufficient. Proposed default: rank by the fraction of preferred genres matched; allow partial/no matches below stronger matches and explain them accurately.
+- [ ] Confirm whether the target completion window is mandatory and strict. Proposed default: require it for MVP and exclude games whose selected estimate exceeds weekly hours multiplied by target weeks.
+- [ ] Confirm handling of unknown single-player support. Proposed default: omit unclassified games from recommendations, retain them in the library, and explain incomplete metadata without labeling them multiplayer-only.
+- [ ] Confirm the desired time-ranking behavior: favor games that fill the available window or shorter games that are easier to finish. Proposed starting rule: genre fit dominates; within similar genre fits, favor games closer to the budget without exceeding it.
+- [ ] Confirm whether first-version preferences are request-only or saved to the account. Proposed default: request-only; saved defaults are a follow-up.
+
+### 2. Add shared catalog metadata
+
+- [ ] Add shared genre IDs/names, nullable single-player support (yes/no/unknown), and metadata lookup/success timestamps; create a migration that preserves existing games, ownership, progress, HLTB data, and queues.
+- [ ] Implement a validated Steam Store metadata adapter using `GET https://store.steampowered.com/api/appdetails?appids=<steam_app_id>`; read `data.genres` and `data.categories`, check the per-app success flag, and classify mixed single-player/multiplayer games as single-player eligible.
+- [ ] Treat unavailable, missing, or malformed metadata as unknown rather than multiplayer-only; never infer game mode from a name or a failed Store lookup. Use stable genre IDs internally rather than localized display labels.
+- [ ] Add background metadata collection after imports and a bounded backfill command for existing catalog games. Reuse the shared catalog across owners; avoid external metadata requests during Steam sync or recommendation HTTP requests.
+- [ ] Add metadata request pacing, timeouts, bounded delayed retries/cooldowns, freshness caching, and per-game deduplication so repeated imports do not repeat unnecessary Store requests. Keep this separate from HLTB provider limits.
+- [ ] Verify stored metadata for representative single-player, mixed-mode, multiplayer-only, and unavailable/delisted games; expose supported genre choices to the recommendation form from stored metadata or a defined taxonomy.
+
+### 3. Build the recommendation service
+
+- [ ] Create `backend/recommendation_service/` with `main.py`, `api.py`, `repository.py`, `ranking.py`, and a Dockerfile. Add an internal health endpoint and document service ownership.
+- [ ] Add `POST /api/v1/recommendations` accepting `weekly_hours`, `target_weeks`, `preferred_genres` (stable IDs), and `completion_goal` (`main_story`, `main_extra`, `completionist`). Validate finite positive hours, positive weeks, supported genre IDs/goals, and sensible documented upper bounds.
+- [ ] Read the authenticated user's owned games, completion status, current games, queue membership, shared metadata, and effective HLTB estimates. Use the existing complete personal-override precedence; do not import library/enrichment implementation code or contact Steam/HLTB in this request.
+- [ ] Filter to owned, verified single-player-capable, not-started games with a resolved HLTB match and a finite positive estimate for the selected completion goal. Apply the agreed queue rule; exclude ambiguous matches without a personal resolution. Do not substitute another completion category when the requested estimate is missing.
+- [ ] Compute `available_hours = weekly_hours * target_weeks` and exclude estimates above this strict budget. Compute `estimated_weeks = estimated_hours / weekly_hours`; describe this as approximate total time assuming the full budget is dedicated to this game, not measured remaining time.
+- [ ] Implement pure, deterministic scoring. Proposed initial formula, pending decision above: `genre_fit = matched preferred genre count / requested genre count`; `time_fit = estimated_hours / available_hours`; `score = 0.8 * genre_fit + 0.2 * time_fit`. Define empty-genre behavior explicitly and use a stable game-ID tie-breaker.
+- [ ] Return at most three distinct games with catalog ID, title, cover, estimate hours/weeks, matched genres, estimate source, and factual reasons derived from eligibility/scoring. Return a clear empty-result reason and useful metadata-coverage information without exposing another user's data.
+- [ ] Add the service to Compose and Nginx using existing verified gateway identity forwarding, internal service access, health checks, and protected routing. Recommendation service reads data; library service remains the owner of progress and queue mutations.
+
+### 4. Build the user flow
+
+- [ ] Add a Pick my next game form for weekly hours, target weeks, preferred genres, and completion goal; show the computed hour budget and validate inputs accessibly.
+- [ ] Render up to three recommendation tiles using the existing visual design, with genre matches, estimated hours/weeks, and concise reasons. Clearly label estimates and the full-budget assumption.
+- [ ] Wire Start Playing and Add to Play Next to existing library actions, preserving their ownership checks and atomic behavior. Never automatically reorder the queue or start a game just because it was recommended.
+- [ ] Add loading, request-error, empty-library, missing-metadata, and no-qualifying-games states. Offer edits to time window/genres rather than silently relaxing constraints; ignore stale responses after logout or newer submissions.
+
+### 5. Validate and finish
+
+- [ ] Unit-test metadata parsing, unknown handling, mixed-mode eligibility, genre normalization, and cooldown/retry behavior with mocked Steam responses.
+- [ ] Unit-test scoring/filtering with the 4-hour x 3-week example, exact 12-hour boundary, over-budget games, partial genre matches, deterministic ties, empty genres per agreed rules, and invalid numeric inputs.
+- [ ] Integration-test authentication and ownership isolation, finished/current/queued exclusions, ambiguous matches, personal estimate precedence, missing selected-category estimates, and empty results. Verify requests perform no external provider calls.
+- [ ] Verify recommendation actions through the gateway and browser on desktop/mobile, including keyboard access, errors, and data persistence after reload/sync. Run relevant backend/frontend suites and record results.
+- [ ] Document API inputs/outputs, metadata backfill/startup commands, scoring choices, limitations, and deferred work. Mark the MVP complete only after a real user can import, set the example preferences, get qualifying suggestions, and start or queue a game.
+
+### Later, outside the initial MVP
+
+- [ ] Save account preference defaults if deferred above.
+- [ ] Add Help me focus for currently playing games; define remaining-time estimation before making finish-date claims.
+- [ ] Add recommendation feedback such as Not interested, Too long, and Already played elsewhere.
+- [ ] Add finer preference tags (for example Cozy or Souls-like) through an additional verified metadata source; Steam Store genres are broad categories, not community tags.
+
 ## Image processing and S3 storage
 
 - [ ] Build an image worker with Celery and a dedicated Redis queue.
