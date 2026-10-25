@@ -24,6 +24,8 @@ class RecommendationResponse(BaseModel):
     matched_genres: list[str]
     queue_position: int | None
     reasons: list[str]
+    history_genres: list[str] = []
+    history_game_count: int = 0
     trailer_url: str | None = None
     trailer_thumbnail: str | None = None
     trailer_title: str | None = None

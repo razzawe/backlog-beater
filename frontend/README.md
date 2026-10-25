@@ -370,3 +370,7 @@ partial failures report the saved status and reload the authoritative library.
 The active card keeps Finish game prominent; Move back to Play Next, Stop
 playing, and Exclude/Restore game live in a compact overflow disclosure.
 Escape or clicking outside dismisses it; the disclosure supports keyboard use.
+
+Recommendation tiles and the trailer deck show completed-history alignment in a
+separate “Based on your finished games” block with named genre chips and a count
+of distinct completed games, when available.

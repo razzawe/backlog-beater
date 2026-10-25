@@ -56,6 +56,10 @@ def load_candidates(session: Session, user_id: int) -> list[Candidate]:
             completion_status=ownership.completion_status.value,
             single_player=metadata.single_player if metadata else None,
             genre_ids=_genre_ids(metadata.genres if metadata else None),
+            genre_names=tuple(sorted((entry['id'], entry['name'].strip())
+                for entry in (metadata.genres if metadata and isinstance(metadata.genres, list) else [])
+                if isinstance(entry, dict) and entry.get('id') in _genre_ids(metadata.genres)
+                and isinstance(entry.get('name'), str) and entry['name'].strip())),
             match_resolved=resolved,
             estimate_source=('personal' if override is not None else 'shared')
                 if estimates.hltb_id is not None else None,

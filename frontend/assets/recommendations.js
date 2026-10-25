@@ -1,3 +1,4 @@
+import { historyInterest, visibleReason } from './history-interest.js';
 import { safeCoverUrl, formatHours } from './library.js';
 
 export function preferencesFromForm(form) {
@@ -128,8 +129,9 @@ export function mountRecommendations({ api, getState, startPlaying, addToQueue, 
       const info = document.createElement('div'); info.className = 'game-info';
       info.append(node('h3', item.title || `Steam game ${item.game_id}`), node('p', `${formatHours(item.estimated_hours)} · about ${new Intl.NumberFormat('en', {maximumFractionDigits: 1}).format(item.estimated_weeks)} weeks`));
       info.append(node('p', item.estimate_source === 'personal' ? 'Your HLTB selection' : 'Shared HLTB estimate', 'recommendation-source'));
+      const history = historyInterest(item); if (history) info.append(history);
       const reasons = document.createElement('ul');
-      item.reasons.filter(reason => !reason.startsWith('Weeks assume')).forEach(reason => reasons.append(node('li', reason)));
+      item.reasons.filter(reason => visibleReason(reason, item)).forEach(reason => reasons.append(node('li', reason)));
       info.append(reasons);
       const actions = node('div', '', 'recommendation-actions');
       const game = () => getState().games.find(candidate => candidate.id === item.game_id);

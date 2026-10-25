@@ -11,7 +11,7 @@ class RecommendationRankingTests(unittest.TestCase):
             preferred_genres=['1', '25'])
         self.game = Candidate(game_id=1, title='Example', cover_url=None,
             completion_status='not started', single_player=True,
-            genre_ids=frozenset({'1', '25'}), match_resolved=True,
+            genre_ids=frozenset({'1', '25'}), genre_names=(('1', 'Action'), ('25', 'Adventure')), match_resolved=True,
             estimate_source='shared', main_story_hours=12)
 
     def rank(self, *games, **preferences):
@@ -78,3 +78,32 @@ class RecommendationRankingTests(unittest.TestCase):
         self.assertEqual(result.trailer_url,video.trailer_url)
         self.assertEqual(result.trailer_format,'hls')
         self.assertIsNone(self.rank(self.game)[0].trailer_url)
+
+
+class CompletedHistoryTests(RecommendationRankingTests):
+    def test_history_breaks_genre_ties_before_time(self):
+        history = replace(self.game, game_id=9, completion_status='finished', genre_ids=frozenset({'1'}))
+        familiar = replace(self.game, game_id=2, genre_ids=frozenset({'1'}), main_story_hours=2)
+        other = replace(self.game, game_id=3, genre_ids=frozenset({'25'}), main_story_hours=12)
+        result = self.rank(other, familiar, history)
+        self.assertEqual([g.game_id for g in result], [2, 3])
+        self.assertIn('Action: shares genres with 1 game you’ve finished.', result[0].reasons)
+        self.assertEqual(self.rank(familiar, other, history, preferred_genres=['25'])[0].game_id, 3)
+        self.assertEqual(self.rank(replace(familiar, main_story_hours=13), other, history)[0].game_id, 3)
+
+    def test_no_usable_history_preserves_order(self):
+        familiar = replace(self.game, game_id=2, genre_ids=frozenset({'1'}), main_story_hours=2)
+        other = replace(self.game, game_id=3, genre_ids=frozenset({'25'}))
+        history = replace(self.game, game_id=9, completion_status='finished', genre_ids=frozenset({'1'}))
+        baseline = self.rank(familiar, other)
+        for changes in ({'recommendation_hidden': True}, {'is_test_build': True}, {'genre_ids': frozenset()}):
+            self.assertEqual(self.rank(familiar, other, replace(history, **changes)), baseline)
+
+    def test_history_deduplicates_and_averages_candidate_genres(self):
+        history = replace(self.game, game_id=9, completion_status='finished')
+        narrow = replace(self.game, game_id=2, genre_ids=frozenset({'1'}), main_story_hours=2)
+        broad = replace(self.game, game_id=3, genre_ids=frozenset({'1', '25', '99'}))
+        request = RecommendationRequest(weekly_hours=4, target_weeks=3)
+        result = rank_candidates(iter([broad, narrow, history, history]), request)
+        self.assertEqual([g.game_id for g in result], [2, 3])
+        self.assertIn('Action, Adventure: shares genres with 1 game you’ve finished.', result[1].reasons)

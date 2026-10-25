@@ -1,3 +1,4 @@
+import { historyInterest, visibleReason } from '../history-interest.js';
 // Paginated recommendation trailers; video is delivered directly by Steam.
 export function mountDeck({loadPlayer,allowed,stopPreview,api,getState,performAction}) {
  const form=document.getElementById('recommendation-form');
@@ -50,7 +51,8 @@ export function mountDeck({loadPlayer,allowed,stopPreview,api,getState,performAc
    const playButton=element('button','Play trailer','button secondary');playButton.type='button';playButton.hidden=true;playButton.onclick=()=>activate(index,true);
    article.append(video,playButton,element('h3',item.title),element('p',`${item.estimated_hours} hours · About ${Number(item.estimated_weeks.toFixed(1))} weeks at your pace`));
    const matches=element('div',null,'deck-preferences');matches.style.padding='0';item.matched_genres.forEach(id=>matches.append(element('span','#'+genreName(id),'deck-chip')));article.append(matches);
-   article.append(element('p',item.reasons.filter(r=>!r.startsWith('Weeks assume')).join(' ')));
+   const history=historyInterest(item);if(history)article.append(history);
+   article.append(element('p',item.reasons.filter(r=>visibleReason(r, item)).join(' ')));
    const actions=element('div',null,'deck-actions');
    for(const [action,label] of [['start','Start Playing'],['queue','Play Next'],['exclude','Exclude']]){
     const button=element('button',label,action==='start'?'button primary':'button secondary');button.type='button';

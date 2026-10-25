@@ -833,3 +833,15 @@ no PUT before Apply, stable/missing ordering, category selection, saved order,
 and unchanged active games. Static assets are available on browser refresh.
 
 The library keeps Currently Playing and Play Next on the main page, with a discovery card above Play Next opening recommendations in a native modal. The card is quieter while a game is active. Signed-in users see a shorter hero retaining the headline and artwork; signed-out users retain the full introduction. Recommendation ranking and queue persistence are unchanged.
+
+Reversible completed-history ranking experiment: derive genre frequencies from
+unique completed owned games with stored genres, excluding hidden entries and
+test builds. Eligible games sort by explicit genre fit, average completed-history
+genre frequency, existing budget utilization, then game ID. History reasons count
+distinct completed games sharing genres. Strict eligibility/budgets, pagination,
+and saved queue order are unchanged; no usable history preserves prior ranking.
+No schema, provider calls, or additional queries are required.
+History explanations include the specific shared genre names from validated
+stored metadata (with a genre-ID fallback if a name is missing).
+Recommendation responses expose history_genres and history_game_count for a
+shared “Based on your finished games” presentation in tiles and trailers.

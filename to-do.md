@@ -387,3 +387,5 @@ Use generic metadata rules; personal exclusions remain user-controlled.
 - [x] Add a successful-completion celebration with cover, gold checkmark, finished-game milestone, brief confetti, and reduced-motion support.
 - [x] Add a dedicated Finish game action on Currently Playing and defer page updates until the completion celebration is dismissed.
 - [x] Add active-game actions to return to the end of Play Next or stop playing without queuing.
+
+- [x] Trial completed-game genre personalization as an isolated reversible ranking change; explicit preferences remain first and time limits stay strict. Ranking/request checks: 24 passed. Accepted for the current recommendation flow.
