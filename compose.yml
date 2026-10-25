@@ -43,6 +43,10 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://backlog:${POSTGRES_PASSWORD:-backlog_dev_password}@db:5432/backlog_beater
+      S3_COVERS_ENABLED: ${S3_COVERS_ENABLED:-false}
+      S3_BUCKET: ${S3_BUCKET:-backlog-beater-demo}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_EC2_METADATA_DISABLED: "true"
     networks: [gateway, database]
     depends_on:
       auth:
@@ -57,6 +61,10 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://backlog:${POSTGRES_PASSWORD:-backlog_dev_password}@db:5432/backlog_beater
+      S3_COVERS_ENABLED: ${S3_COVERS_ENABLED:-false}
+      S3_BUCKET: ${S3_BUCKET:-backlog-beater-demo}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_EC2_METADATA_DISABLED: "true"
     networks: [gateway, database]
     depends_on:
       auth:
@@ -185,6 +193,46 @@ services:
       enrichment-redis:
         condition: service_healthy
     command: ["python", "-m", "celery", "-A", "enrichment_worker.worker:app", "beat", "--loglevel=INFO", "--schedule=/tmp/enrichment-beat"]
+
+  image-worker:
+    profiles: [images]
+    build:
+      context: ./backend
+      dockerfile: image-worker/Dockerfile
+    restart: unless-stopped
+    environment: &image_environment
+      DATABASE_URL: postgresql+psycopg://backlog:${POSTGRES_PASSWORD:-backlog_dev_password}@db:5432/backlog_beater
+      IMAGE_BROKER_URL: redis://enrichment-redis:6379/0
+      S3_UPLOADS_ENABLED: ${S3_UPLOADS_ENABLED:-false}
+      S3_BUCKET: ${S3_BUCKET:-backlog-beater-demo}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+    networks: [database, enrichment_queue, enrichment_egress]
+    depends_on:
+      db:
+        condition: service_healthy
+      enrichment-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -m celery -A image_worker.worker:app inspect ping --destination=images@$$HOSTNAME --timeout=3 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 95s
+
+  image-scheduler:
+    profiles: [images]
+    build:
+      context: ./backend
+      dockerfile: image-worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      IMAGE_BROKER_URL: redis://enrichment-redis:6379/0
+    networks: [enrichment_queue]
+    depends_on:
+      enrichment-redis:
+        condition: service_healthy
+    command: ["python", "-m", "celery", "-A", "image_worker.worker:app", "beat", "--loglevel=INFO", "--schedule=/tmp/image-beat"]
 
   nginx:
     image: nginx:stable-alpine

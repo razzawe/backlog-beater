@@ -10,6 +10,7 @@ from app.database import get_session
 from .schemas import RecommendationRequest
 from .repository import load_candidates, supported_genre_ids
 from .ranking import eligible_estimate, rank_candidates
+from app.covers import resolve_cover
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
@@ -18,6 +19,7 @@ class RecommendationResponse(BaseModel):
     game_id: int
     title: str | None
     cover_url: str | None
+    cover_fallback_url: str | None = None
     estimated_hours: float
     estimated_weeks: float
     estimate_source: Literal["personal", "shared"] | None
@@ -77,11 +79,18 @@ def recommend(preferences: RecommendationRequest,
         available_hours=preferences.available_hours,
         pagination=PaginationResponse(offset=preferences.offset, total=within,
             has_more=preferences.offset + 3 < within),
-        recommendations=[RecommendationResponse(**asdict(item)) for item in recommendations],
+        recommendations=[cover_response(item) for item in recommendations],
         empty_reason=reason,
         coverage=CoverageResponse(owned_games=len(candidates),
             verified_single_player_games=sum(item.single_player is True for item in candidates),
             eligible_games_before_budget=len(estimates), games_within_budget=within))
+
+
+def cover_response(item):
+    data = asdict(item)
+    key = data.pop('cover_s3_key')
+    data.update(resolve_cover(data['cover_url'], key))
+    return RecommendationResponse(**data)
 
 
 @router.get("")

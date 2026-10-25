@@ -1,4 +1,5 @@
 import { safeCoverUrl } from './library.js';
+import { setCoverImage } from './covers.js';
 
 export function celebrateCompletion(game, count) {
   document.querySelector('.completion-celebration')?.close();
@@ -8,7 +9,7 @@ export function celebrateCompletion(game, count) {
   dialog.setAttribute('aria-describedby', 'celebration-game');
   const cover = document.createElement('div'); cover.className = 'celebration-cover';
   const url = safeCoverUrl(game.cover_url);
-  if (url) { const img = document.createElement('img'); img.src = url; img.alt = ''; img.referrerPolicy = 'no-referrer'; img.onerror = () => img.remove(); cover.append(img); }
+  if (url || safeCoverUrl(game.cover_fallback_url)) { const img = document.createElement('img'); img.alt = ''; img.referrerPolicy = 'no-referrer'; cover.append(img); setCoverImage(img, game, () => img.remove()); }
   const check = document.createElement('span'); check.className = 'celebration-check'; check.textContent = '✓'; check.setAttribute('aria-hidden', 'true'); cover.append(check);
   const heading = document.createElement('h2'); heading.id = 'celebration-title'; heading.textContent = 'Another one conquered.';
   const name = document.createElement('p'); name.id = 'celebration-game'; name.textContent = `You finished ${game.name || 'your game'}.`;

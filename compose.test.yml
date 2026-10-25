@@ -40,5 +40,5 @@ services:
         import subprocess, sys, tomllib
         with open('pyproject.toml', 'rb') as source:
             dependencies = tomllib.load(source)['project']['dependencies']
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', *dependencies])
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', *dependencies, '-r', 'image-worker/requirements.txt'])
         sys.exit(subprocess.call([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-v']))

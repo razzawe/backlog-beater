@@ -1,4 +1,5 @@
 import { celebrateCompletion } from './celebration.js';
+import { setCoverImage } from './covers.js';
 import { mountTrailers } from './trailers/player.js';
 import { mountRecommendations } from './recommendations.js';
 import { enrichmentProgress } from './enrichment.js';
@@ -171,7 +172,7 @@ function gameCard(game, { activeCard = false } = {}) {
   const cover = document.createElement('div'); cover.className = 'game-cover'; cover.style.setProperty('--hue', String((game.steam_app_id * 47) % 360));
   const fallback = document.createElement('span'); fallback.className = 'cover-placeholder'; fallback.textContent = String(game.steam_app_id); cover.append(fallback);
   const url = safeCoverUrl(game.cover_url);
-  if (url) { const img = document.createElement('img'); img.src = url; img.alt = `Cover for ${game.name || `Steam app ${game.steam_app_id}`}`; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; fallback.hidden = true; img.onerror = () => { img.remove(); fallback.hidden = false; }; cover.append(img); }
+  if (url || safeCoverUrl(game.cover_fallback_url)) { const img = document.createElement('img'); img.alt = `Cover for ${game.name || `Steam app ${game.steam_app_id}`}`; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; fallback.hidden = true; cover.append(img); setCoverImage(img, game, () => { img.remove(); fallback.hidden = false; }); }
   const tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = labels[game.completion_status]; cover.append(tag);
   const info = document.createElement('div'); info.className = 'game-info';
   const title = document.createElement('h3'); title.textContent = game.name || `Steam app ${game.steam_app_id}`;
@@ -315,10 +316,10 @@ function renderPlan() {
     const fallback = document.createElement('span'); fallback.className = 'cover-placeholder';
     fallback.textContent = String(game.steam_app_id); cover.append(fallback);
     const url = safeCoverUrl(game.cover_url);
-    if (url) {
-      const img = document.createElement('img'); img.src = url; img.alt = 'Cover for ' + name;
+    if (url || safeCoverUrl(game.cover_fallback_url)) {
+      const img = document.createElement('img'); img.alt = 'Cover for ' + name;
       img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; fallback.hidden = true;
-      img.onerror = () => { img.remove(); fallback.hidden = false; }; cover.append(img);
+      cover.append(img); setCoverImage(img, game, () => { img.remove(); fallback.hidden = false; });
     }
     const rank = document.createElement('span'); rank.className = 'queue-rank';
     rank.textContent = String(index + 1); rank.setAttribute('aria-label', (preview ? 'Preview position ' : 'Queue position ') + (index + 1)); cover.append(rank);

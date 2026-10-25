@@ -9,6 +9,7 @@ from app.database import CompletionStatus, EnrichmentStatus, Game, GameEnrichmen
 from app.database import PlayQueueEntry, GameMetadata
 from library_service.queue import lock_owner
 from app.catalog_filters import effective_free_flag, is_test_build
+from app.covers import resolve_cover
 
 
 # Group endpoints for the authenticated user's stored library.
@@ -21,6 +22,7 @@ class OwnedGameResponse(BaseModel):
     steam_app_id: int
     name: str | None
     cover_url: str | None
+    cover_fallback_url: str | None = None
     completion_status: CompletionStatus
     recommendation_hidden: bool = False
     single_player: bool | None = None
@@ -50,7 +52,7 @@ def _response(game: Game, ownership: OwnedGame, override: PersonalHLTBOverride |
         multiplayer=game_metadata.multiplayer if game_metadata else None,
         is_free=effective_free_flag(game_metadata.is_free, game_metadata.genres) if game_metadata else None,
         is_test_build=is_test_build(game.name),
-        cover_url=game.cover_url, completion_status=ownership.completion_status,
+        **resolve_cover(game.cover_url, game.cover_s3_key), completion_status=ownership.completion_status,
         hltb_id=metadata.hltb_id, main_story_hours=metadata.main_story_hours,
         main_extra_hours=metadata.main_extra_hours,
         completionist_hours=metadata.completionist_hours,

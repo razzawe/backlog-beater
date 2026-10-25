@@ -30,6 +30,7 @@ class Candidate:
     trailer_title: str | None = None
     trailer_format: str | None = None
     genre_names: tuple[tuple[str, str], ...] = ()
+    cover_s3_key: str | None = None
 
 
 
@@ -50,6 +51,7 @@ class Recommendation:
     trailer_thumbnail: str | None = None
     trailer_title: str | None = None
     trailer_format: str | None = None
+    cover_s3_key: str | None = None
 
 
 def rank_candidates(candidates: Iterable[Candidate],
@@ -103,6 +105,7 @@ def rank_candidates(candidates: Iterable[Candidate],
         reasons.append('Weeks assume your full weekly budget is dedicated to this game.')
         recommendation = Recommendation(
             game_id=candidate.game_id, title=candidate.title, cover_url=candidate.cover_url,
+            cover_s3_key=candidate.cover_s3_key,
             estimated_hours=hours, estimated_weeks=weeks,
             estimate_source=candidate.estimate_source, matched_genres=matched,
             queue_position=candidate.queue_position, reasons=tuple(reasons),

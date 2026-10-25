@@ -4,6 +4,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-s3-demo/
 venv/
 .pytest_cache/
 .coverage

@@ -1,0 +1,13 @@
+# Explicit local credential mount, only when this override is selected.
+# S3_UPLOADS_ENABLED still defaults to false. Do not use this override in production.
+services:
+  image-worker:
+    environment:
+      AWS_PROFILE: backlog-demo
+      AWS_SHARED_CREDENTIALS_FILE: /home/app/.aws/credentials
+      AWS_CONFIG_FILE: /home/app/.aws/config
+    volumes:
+      - type: bind
+        source: ${USERPROFILE}/.aws
+        target: /home/app/.aws
+        read_only: true

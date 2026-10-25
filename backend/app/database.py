@@ -1,6 +1,7 @@
 import os
 from datetime import UTC, datetime
 from enum import Enum
+from uuid import uuid4
 
 from sqlalchemy import Boolean, false, CheckConstraint, Column, DateTime, Enum as SQLAlchemyEnum, ForeignKeyConstraint, Index, JSON
 from sqlmodel import Field, Session, SQLModel, create_engine
@@ -26,6 +27,8 @@ class Game(SQLModel, table=True):
     steam_app_id: int = Field(unique=True)  # PostgreSQL prevents concurrent duplicates.
     name: str | None = None
     cover_url: str | None = None
+    # Optional object key; keep the Steam URL as fallback. Never store signed URLs.
+    cover_s3_key: str | None = None
     hltb_id: int | None = None
     main_story_hours: float | None = None
     main_extra_hours: float | None = None
@@ -219,3 +222,46 @@ class GameMetadataJob(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True)))
     last_error: str | None = None
     __table_args__ = (Index("ix_game_metadata_jobs_status_updated", "status", "updated_at"),)
+
+
+class ImageBatch(SQLModel, table=True):
+    """Explicit upload scope; later syncs must never expand its job membership."""
+    __tablename__ = "image_batches"
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    user_id: int = Field(foreign_key="user.id", nullable=False)
+    status: str = Field(default="ready", nullable=False)
+    max_games: int = Field(default=115, nullable=False)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), nullable=False))
+    finished_at: datetime | None = Field(default=None,
+        sa_column=Column(DateTime(timezone=True)))
+    __table_args__ = (
+        CheckConstraint("status IN ('ready','running','completed','cancelled')", name="image_batch_status"),
+        CheckConstraint("max_games BETWEEN 1 AND 115", name="image_batch_max_games"),
+        Index("ix_image_batches_user_created", "user_id", "created_at"),
+    )
+
+
+class ImageJob(SQLModel, table=True):
+    """One snapshotted source per batch/game; lifecycle independent of HLTB."""
+    __tablename__ = "image_jobs"
+    batch_id: str = Field(foreign_key="image_batches.id", primary_key=True)
+    game_id: int = Field(foreign_key="game.id", primary_key=True)
+    source_url: str | None = None  # Missing source can be recorded as skipped.
+    status: str = Field(default="ready", nullable=False)
+    attempt_token: str | None = None
+    attempt_count: int = Field(default=0, nullable=False)
+    next_attempt_at: datetime | None = Field(default=None,
+        sa_column=Column(DateTime(timezone=True)))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), nullable=False))
+    last_published_at: datetime | None = Field(default=None,
+        sa_column=Column(DateTime(timezone=True)))
+    last_error: str | None = None
+    __table_args__ = (
+        CheckConstraint("status IN ('ready','pending','running','completed','skipped','failed','cancelled')",
+                        name="image_job_status"),
+        CheckConstraint("attempt_count >= 0", name="image_job_attempt_count"),
+        Index("ix_image_jobs_status_due", "status", "next_attempt_at", "updated_at"),
+        Index("ix_image_jobs_game_status", "game_id", "status"),
+    )

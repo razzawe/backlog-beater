@@ -1,0 +1,16 @@
+# Optional local read-only AWS profile, independent of the image-upload override.
+# Configure backlog-cover-read with only s3:GetObject on this bucket's covers/*.
+services:
+  library:
+    environment: &cover_credentials
+      AWS_PROFILE: backlog-cover-read
+      AWS_SHARED_CREDENTIALS_FILE: /home/app/.aws/credentials
+      AWS_CONFIG_FILE: /home/app/.aws/config
+    volumes: &cover_mounts
+      - type: bind
+        source: ${S3_READ_PROFILE_DIR:?Set S3_READ_PROFILE_DIR to an isolated folder containing the read-only profile}
+        target: /home/app/.aws
+        read_only: true
+  recommendation:
+    environment: *cover_credentials
+    volumes: *cover_mounts

@@ -1,5 +1,6 @@
 import { historyInterest, visibleReason } from './history-interest.js';
 import { safeCoverUrl, formatHours } from './library.js';
+import { setCoverImage } from './covers.js';
 
 export function preferencesFromForm(form) {
   const hours = Number(form.get('weekly_hours'));
@@ -125,7 +126,7 @@ export function mountRecommendations({ api, getState, startPlaying, addToQueue, 
       const cover = document.createElement('div'); cover.className = 'game-cover';
       const mark = node('span', '↗', 'recommendation-cover-mark'); mark.setAttribute('aria-hidden', 'true'); cover.append(mark);
       const url = safeCoverUrl(item.cover_url);
-      if (url) { const img = document.createElement('img'); img.src = url; img.alt = ''; img.loading = 'lazy'; img.addEventListener('load', () => { mark.hidden = true; }, {once: true}); img.addEventListener('error', () => img.remove(), {once: true}); cover.append(img); }
+      if (url || safeCoverUrl(item.cover_fallback_url)) { const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.addEventListener('load', () => { mark.hidden = true; }, {once: true}); cover.append(img); setCoverImage(img, item, () => { img.remove(); mark.hidden = false; }); }
       const info = document.createElement('div'); info.className = 'game-info';
       info.append(node('h3', item.title || `Steam game ${item.game_id}`), node('p', `${formatHours(item.estimated_hours)} · about ${new Intl.NumberFormat('en', {maximumFractionDigits: 1}).format(item.estimated_weeks)} weeks`));
       info.append(node('p', item.estimate_source === 'personal' ? 'Your HLTB selection' : 'Shared HLTB estimate', 'recommendation-source'));

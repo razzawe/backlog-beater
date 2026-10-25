@@ -6,6 +6,8 @@
 
 ## Primary next implementation
 
+- [ ] Add reliable import-to-worker delivery using a transactional catalog import outbox: save the event with games and ownership in one PostgreSQL transaction; dispatch through the existing scheduler/worker with bounded batches, token-owned leases, broker backoff, and replay until the consumer atomically creates per-game jobs and marks the event processed. Preserve duplicate safety, legacy queued-event compatibility, and existing failed-job states. Add processed-event cleanup, scheduling feedback, migration/deployment documentation, and tests for rollback, broker outages, concurrent claims, duplicate delivery, and crash recovery. Verify an import during a Redis outage is processed after recovery without another sync.
+
 - [ ] Add persistent enrichment jobs and atomic per-game claims in `enrichment-worker/enrichment_worker/jobs.py`, backed by a shared database model and migration. Enforce one job row per catalog game; atomically claim scheduling and pending-to-running execution, pass an attempt token to each task, and verify it when saving outcomes. Keep job lifecycle separate from match outcomes. Add recovery for broker publication failures and expired running jobs; pending-job expiry must account for queue backlog. Test concurrent claims, duplicate deliveries, stale attempts, and recovery before using job state for UI progress.
 
 Implemented job infrastructure: migration 006, per-game ready/pending/running/completed/failed
@@ -172,6 +174,40 @@ app live QA, and automatic delayed retry policy remain separate work.
 - [ ] Add finer preference tags (for example Cozy or Souls-like) through an additional verified metadata source; Steam Store genres are broad categories, not community tags.
 
 ## Image processing and S3 storage
+
+- [x] Implement opt-in image queue/worker/scheduler, disabled upload flag,
+  durable dispatch/republication, token fencing, bounded retries, validated
+  downloads, conditional S3 storage, and batch completion. Offline tests use
+  isolated PostgreSQL and mocked/stubbed network boundaries. See image-worker README.
+- [x] Apply image migrations 012/013 and verify one-game AWS acceptance:
+  Portal 2 (catalog ID 5), one completed job, saved S3 key, verified 28,228-byte
+  JPEG. Tested October 25, 2026; worker recreated disabled without credential
+  mount, then image worker/scheduler stopped. No full-library batch was created.
+- [x] Implement optional S3 cover resolver, library/recommendation integration,
+  and shared frontend fallback (including Play Next). Display defaults off;
+  see backend/COVER_DISPLAY.md for isolated read-only credential setup.
+- [x] Configure isolated backlog-cover-read profile for library/recommendation
+  containers and enable display with uploads off. October 25, 2026: reader
+  identity verified; library API signed Portal 2 cover downloaded HTTP 200
+  (28,228 bytes), Steam fallback present; recommendation signing verified.
+- [ ] Visually verify Portal 2 inside the authenticated browser before
+  processing the fixed library.
+
+- [x] Add private fixed-library image batch create/status/cancel CLI: atomic
+  membership/source snapshot, owned subset selection, 115-game maximum,
+  existing/missing-cover skips, and serialized active-batch creation per user.
+  This step saves jobs only; Redis dispatch, AWS uploads, and worker/Compose
+  wiring remain next. See backend/image-worker/README.md.
+
+- [x] Fixed-library upload schema: add image_batches (owner, status, timestamps,
+  maximum scope) and image_jobs (unique batch/game, source snapshot, lifecycle,
+  attempt token/count, retry time, publication timestamp, error). Migration 013
+  is schema-only; batch commands, enforcement of actual job count, dispatch,
+  workers, progress reporting, and S3 display remain separate steps. Apply
+  migrations 012/013 to the application database before deploying these models.
+
+- [x] App integration step 1: add nullable `Game.cover_s3_key` and additive migration
+  012; preserve the existing Steam `cover_url`. No upload or display changes yet.
 
 - [ ] Build an image worker with Celery and a dedicated Redis queue.
 - [ ] Queue image processing when import or enrichment discovers a game cover.

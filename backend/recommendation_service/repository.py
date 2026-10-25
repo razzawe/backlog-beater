@@ -53,6 +53,7 @@ def load_candidates(session: Session, user_id: int) -> list[Candidate]:
             or enrichment.status == EnrichmentStatus.MATCHED)
         candidates.append(Candidate(
             game_id=game.id, title=game.name, cover_url=game.cover_url,
+            cover_s3_key=game.cover_s3_key,
             completion_status=ownership.completion_status.value,
             single_player=metadata.single_player if metadata else None,
             genre_ids=_genre_ids(metadata.genres if metadata else None),

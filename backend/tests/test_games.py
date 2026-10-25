@@ -46,7 +46,7 @@ class OwnedGamesTests(unittest.TestCase):
             ]
             self.games = [
                 {"id": game.id, "steam_app_id": game.steam_app_id,
-                 "name": None, "cover_url": None, "completion_status": "not started",
+                 "name": None, "cover_url": None, "cover_fallback_url": None, "completion_status": "not started",
                  "single_player": None, "multiplayer": None, "recommendation_hidden": False, "is_free": None, "is_test_build": False,
                  "hltb_id": None, "main_story_hours": None, "main_extra_hours": None,
                  "completionist_hours": None, "hltb_source": None, "hltb_review_needed": False, "enrichment_status": None, "enrichment_last_lookup_at": None}
