@@ -65,7 +65,7 @@ read-only (its profiles become readable to the worker); never commit credentials
 Only the worker uses backlog-demo credentials, not the scheduler.
 
 ```powershell
-docker compose -f compose.yml -f compose.s3-demo.yml --profile images up -d --force-recreate image-worker image-scheduler
+docker compose -f compose.yml -f compose.s3-upload.yml --profile images up -d --force-recreate image-worker image-scheduler
 docker compose logs -f --tail 50 image-worker
 ```
 
