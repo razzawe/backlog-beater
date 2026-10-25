@@ -349,3 +349,24 @@ no PUT before Apply, stable/missing ordering, category selection, saved order,
 and unchanged active games. Static assets are available on browser refresh.
 
 A discovery card above Play Next opens preferences, recommendation tiles, and trailer browsing in a modal. Close, Escape, or the backdrop dismisses the recommendation modal. The card is quieter with an active game. A shorter signed-in hero retains the headline and artwork while hiding supporting copy. Completion-goal and time inputs align. Verified with 17 frontend tests and desktop/mobile browser checks.
+
+Marking a game finished now opens a brief cover celebration with a gold check,
+confetti, and the user's total finished count (independent of library filters).
+It appears only after a successful transition to finished, never on refresh or
+failed saves. Nice, Escape, or backdrop dismisses it; reduced motion disables
+confetti. Browser checks cover these behaviors and mobile layout.
+
+Currently Playing uses a dedicated gold Finish game button instead of a status
+select. A successful completion keeps the card in place behind the celebration;
+rendering resumes on dismissal. Library status selects remain available for
+corrections and use the same save/celebration flow. Failed saves leave the card
+available for retry. Sign-out closes the celebration.
+
+Currently Playing also offers Move back to Play Next (sets Not started, then
+appends to the queue) and Stop playing (sets Not started and removes any queue
+entry). Ownership and progress data remain. These reuse existing endpoints;
+partial failures report the saved status and reload the authoritative library.
+
+The active card keeps Finish game prominent; Move back to Play Next, Stop
+playing, and Exclude/Restore game live in a compact overflow disclosure.
+Escape or clicking outside dismisses it; the disclosure supports keyboard use.

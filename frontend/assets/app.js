@@ -1,3 +1,4 @@
+import { celebrateCompletion } from './celebration.js';
 import { mountTrailers } from './trailers/player.js';
 import { mountRecommendations } from './recommendations.js';
 import { enrichmentProgress } from './enrichment.js';
@@ -71,6 +72,7 @@ function view(name) {
   document.querySelectorAll('[data-view]').forEach(button => button.classList.toggle('active', button.dataset.view === name));
 }
 function signout(message = '') {
+  document.querySelector('.completion-celebration')?.close();
   stopEnrichment(); $('enrichment-progress').hidden = true;
   if ($('hltb-review').open) $('hltb-review').close();
   $('queue-sort').value = 'manual'; $('queue-sort-goal').value = 'main_story_hours';
@@ -109,6 +111,7 @@ function refreshAccount() {
   $('sync-button').disabled = !user?.steam_id || state.loading;
 }
 function renderLibrary() {
+  if (state.user && document.querySelector('.completion-celebration[open]')) return;
   $('library-view').classList.toggle('short-hero', Boolean(state.user));
   recommendationUI.refresh();
   renderPlan();
@@ -137,7 +140,33 @@ function renderLibrary() {
   else { title = 'No games match just yet'; copy = 'Try All games, another progress filter, or Show free-to-play games.'; action = 'Clear filters'; }
   $('empty-title').textContent = title; $('empty-copy').textContent = copy; $('empty-action').hidden = !action; $('empty-action').textContent = action || '';
 }
-function gameCard(game) {
+async function saveCompletion(game, status, control) {
+  if (control.disabled) return;
+  control.disabled = true;
+  const generation = state.generation;
+  const previousStatus = game.completion_status;
+  const originalText = control.textContent;
+  if (control.tagName === 'BUTTON') control.textContent = 'Saving…';
+  try {
+    const updated = await api(`/games/${game.id}`, { method: 'PATCH', body: { completion_status: status } });
+    if (generation !== state.generation) return;
+    Object.assign(game, updated);
+    state.queue = state.queue.filter(id => id !== game.id || updated.completion_status !== 'in progress');
+    if (previousStatus !== 'finished' && updated.completion_status === 'finished') {
+      await celebrateCompletion(game, state.games.filter(item => item.completion_status === 'finished').length);
+      if (generation !== state.generation) return;
+    }
+    renderLibrary(); notice('Progress saved. One game at a time.');
+  } catch (error) {
+    if (generation !== state.generation) return;
+    if (control.tagName === 'SELECT') control.value = game.completion_status;
+    notice(error.message, true);
+  } finally {
+    control.disabled = false;
+    if (control.tagName === 'BUTTON') control.textContent = originalText;
+  }
+}
+function gameCard(game, { activeCard = false } = {}) {
   const card = document.createElement('article'); card.className = 'game-card';
   const cover = document.createElement('div'); cover.className = 'game-cover'; cover.style.setProperty('--hue', String((game.steam_app_id * 47) % 360));
   const fallback = document.createElement('span'); fallback.className = 'cover-placeholder'; fallback.textContent = String(game.steam_app_id); cover.append(fallback);
@@ -150,10 +179,7 @@ function gameCard(game) {
   const select = document.createElement('select'); select.setAttribute('aria-label', `Completion status for Steam app ${game.steam_app_id}`);
   STATUSES.forEach(status => { const option = document.createElement('option'); option.value = status; option.textContent = labels[status]; select.append(option); }); select.value = game.completion_status; select.disabled = state.planBusy || state.loading;
   select.addEventListener('change', async () => {
-    select.disabled = true; const generation = state.generation;
-    try { const updated = await api(`/games/${game.id}`, { method: 'PATCH', body: { completion_status: select.value } }); if (generation !== state.generation) return; Object.assign(game, updated); state.queue = state.queue.filter(id => id !== game.id || updated.completion_status !== 'in progress'); renderLibrary(); notice('Progress saved. One game at a time.'); }
-    catch (error) { select.value = game.completion_status; notice(error.message, true); }
-    finally { select.disabled = false; }
+    await saveCompletion(game, select.value, select);
   });
   const estimates = document.createElement('dl'); estimates.className = 'completion-times';
   estimates.setAttribute('aria-label', 'Estimated completion times');
@@ -181,7 +207,20 @@ function gameCard(game) {
     review.textContent = 'Resolve HLTB match'; review.addEventListener('click', () => openHLTBReview(game, review));
     info.append(review);
   }
-  info.append(select);
+  let activeMenu;
+  if (activeCard) {
+    const actions = document.createElement('div'); actions.className = 'active-game-actions';
+    const menu = document.createElement('details'); menu.className = 'active-game-menu';
+    const toggle = document.createElement('summary'); toggle.textContent = '⋯'; toggle.setAttribute('aria-label', `More actions for ${game.name || 'this game'}`);
+    activeMenu = document.createElement('div'); activeMenu.className = 'active-game-menu-items';
+    menu.append(toggle, activeMenu);
+    menu.addEventListener('keydown', event => { if (event.key === 'Escape') { menu.open = false; toggle.focus(); event.stopPropagation(); } });
+    menu.addEventListener('click', event => { if (event.target.closest('button')) menu.open = false; });
+    const finish = planButton('✓ Finish game', () => saveCompletion(game, 'finished', finish));
+    finish.classList.add('finish-game'); actions.append(finish, menu); info.append(actions);
+    activeMenu.append(planButton('Move back to Play Next', () => stopPlaying(game, true)));
+    activeMenu.append(planButton('Stop playing', () => stopPlaying(game, false)));
+  } else info.append(select);
   if (game.completion_status !== 'in progress') {
     info.append(planButton('Start Playing', () => startPlaying(game)));
     const queued = state.queue.includes(game.id);
@@ -191,7 +230,7 @@ function gameCard(game) {
     () => setRecommendationHidden(game, !game.recommendation_hidden));
   exclude.classList.add('recommendation-hide');
   exclude.title = game.recommendation_hidden ? 'Show in your library and recommendations again' : 'Hide from your library and recommendations; keep progress and queue entries';
-  info.append(exclude);
+  (activeMenu || info).append(exclude);
   card.append(cover, info); return card;
 }
 function planButton(label, action, disabled = false) {
@@ -231,6 +270,19 @@ function startPlaying(game) {
     Object.assign(game, updated); state.queue = state.queue.filter(id => id !== game.id);
   });
 }
+function stopPlaying(game, enqueue) {
+  return planAction(async generation => {
+    const updated = await api(`/games/${game.id}`, { method: 'PATCH', body: { completion_status: 'not started' } });
+    if (generation !== state.generation) return;
+    Object.assign(game, updated);
+    try {
+      const queue = await api(`/games/queue/${game.id}`, { method: enqueue ? 'POST' : 'DELETE' });
+      if (generation === state.generation) state.queue = queue;
+    } catch (error) {
+      throw new Error(`Game returned to Not started, but ${enqueue ? 'adding it to' : 'removing it from'} Play Next failed. ${error.message}`);
+    }
+  }, enqueue ? 'Moved back to the end of Play Next.' : 'Stopped playing. Game remains in your library, outside Play Next.');
+}
 function moveQueued(index, offset) {
   const game_ids = [...state.queue];
   [game_ids[index], game_ids[index + offset]] = [game_ids[index + offset], game_ids[index]];
@@ -243,7 +295,7 @@ discoveryDialog.addEventListener('click', event => { if (event.target === discov
 function renderPlan() {
   $('play-plan').hidden = !state.user;
   const playing = state.games.filter(game => game.completion_status === 'in progress');
-  $('currently-playing').replaceChildren(...playing.map(gameCard));
+  $('currently-playing').replaceChildren(...playing.map(game => gameCard(game, { activeCard: true })));
   $('playing-empty').hidden = playing.length > 0;
   $('discovery-card').classList.toggle('is-playing', playing.length > 0);
   if (!state.user && discoveryDialog.open) discoveryDialog.close();
@@ -459,3 +511,5 @@ $('queue-apply-sort').addEventListener('click', () => {
     if (generation === state.generation) { state.queue = queue; $('queue-sort').value = 'manual'; }
   }, 'Queue order saved.');
 });
+
+document.addEventListener('click', event => { document.querySelectorAll('.active-game-menu[open]').forEach(menu => { if (!menu.contains(event.target)) menu.open = false; }); });

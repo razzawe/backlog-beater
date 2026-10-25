@@ -383,3 +383,7 @@ Use generic metadata rules; personal exclusions remain user-controlled.
   missing estimates last, and explicit Apply order via the existing queue API.
 
 - [x] Move recommendation discovery into a modal opened by a visible card above Play Next; shorten the signed-in hero and align recommendation preference inputs.
+
+- [x] Add a successful-completion celebration with cover, gold checkmark, finished-game milestone, brief confetti, and reduced-motion support.
+- [x] Add a dedicated Finish game action on Currently Playing and defer page updates until the completion celebration is dismissed.
+- [x] Add active-game actions to return to the end of Play Next or stop playing without queuing.
