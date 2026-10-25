@@ -347,3 +347,5 @@ Signing out resets sort controls. Sort preferences themselves are not saved.
 All 17 frontend tests and mocked desktop/mobile browser checks pass, including
 no PUT before Apply, stable/missing ordering, category selection, saved order,
 and unchanged active games. Static assets are available on browser refresh.
+
+A discovery card above Play Next opens preferences, recommendation tiles, and trailer browsing in a modal. Close, Escape, or the backdrop dismisses the recommendation modal. The card is quieter with an active game. A shorter signed-in hero retains the headline and artwork while hiding supporting copy. Completion-goal and time inputs align. Verified with 17 frontend tests and desktop/mobile browser checks.

@@ -24,8 +24,25 @@
     <section id="library-view">
       <div class="intro"><div><div class="eyebrow">GOOD GAMES DESERVE TO BE PLAYED</div><h1>Your next great game<br>is already in your library<span>.</span></h1><p>A little less scrolling. A little more playing.<br>Make a dent in that backlog, one game at a time.</p></div><div class="hero-art" aria-hidden="true"><div class="art-orbit"></div><div class="art-card card-back"><span>PLAY<br>WHAT<br>YOU OWN.</span></div><div class="art-card card-front"><span class="art-star">✦</span><span>ONE MORE<br>CHAPTER.</span><small>BACKLOG BEATER / 01</small></div><span class="floating-label">YOUR NEXT ADVENTURE ↗</span></div></div>
       <div class="stats"><div><span class="stat-icon purple">▦</span><div><strong id="total-count">0</strong><span>Games in your library</span></div></div><div><span class="stat-icon blue">◷</span><div><strong id="progress-count">0</strong><span>Currently playing</span></div></div><div><span class="stat-icon green">✓</span><div><strong id="finished-count">0</strong><span>Finished & celebrated</span></div></div><div class="completion-stat"><div><strong id="completion-count">0%</strong><span>Your completion rate</span></div><div class="progress-track"><span id="completion-bar"></span></div></div></div>
+      <section id="play-plan" hidden aria-label="Your play plan">
+        <h2>Currently Playing</h2>
+        <p id="playing-empty">Choose a single-player game from your library and select Start Playing.</p>
+        <div id="currently-playing" class="game-grid"></div>
+        <div id="discovery-card" class="discovery-card"><div><span class="discovery-card-icon" aria-hidden="true">✦</span><div><h3>Not sure what to play?</h3><p>Find a game that fits your time and interests.</p></div></div><button id="find-game" class="button primary" type="button">Find my next game →</button></div>
+        <div class="play-next-heading"><h2>Play Next</h2></div>
+        <div class="queue-sort-controls">
+          <label>Order<select id="queue-sort"><option value="manual">Manual order</option><option value="shortest">Shortest → longest</option><option value="longest">Longest → shortest</option></select></label>
+          <label>Completion goal<select id="queue-sort-goal"><option value="main_story_hours">Main story</option><option value="main_extra_hours">Story + extras</option><option value="completionist_hours">Completionist</option></select></label>
+          <button id="queue-apply-sort" class="button secondary" type="button" disabled>Apply order</button>
+        </div>
+        <p id="queue-sort-status" class="queue-sort-status" role="status" aria-live="polite"></p>
+        <p id="queue-empty">Add games from your library to build your next adventures.</p>
+        <ol id="play-next"></ol>
+      </section>
+      <dialog id="recommendation-discovery" class="recommendation-modal" aria-labelledby="discovery-title">
+        <div class="discovery-header"><div><h2 id="discovery-title">Find your next game</h2><p>Make room for your next adventure.</p></div><button id="close-discovery" class="button secondary" type="button" aria-label="Close recommendations">Close ✕</button></div>
       <section class="recommendation-panel" aria-labelledby="recommendation-title">
-        <div class="recommendation-heading"><div><div class="eyebrow">MAKE ROOM FOR YOUR NEXT GAME</div><h2 id="recommendation-title">Pick my next game</h2><p>Find something you own that fits your time and interests.</p></div><output id="recommendation-budget" aria-live="polite">12-hour budget</output></div>
+        <div class="recommendation-heading"><div><div class="eyebrow">MAKE ROOM FOR YOUR NEXT GAME</div><h2 id="recommendation-title">Your preferences</h2><p>Find something you own that fits your time and interests.</p></div><output id="recommendation-budget" aria-live="polite">12-hour budget</output></div>
         <p id="recommendation-signin">Sign in to get suggestions from your library.</p>
         <form id="recommendation-form" hidden>
           <div class="recommendation-fields">
@@ -42,20 +59,7 @@
         <nav id="recommendation-pages" class="recommendation-pages" aria-label="Recommendation pages" hidden><button id="recommendation-back" class="button secondary" type="button">← Back</button><span id="recommendation-page-label" role="status" aria-live="polite"></span><span id="recommendation-page-loading" role="status" hidden>Loading…</span><button id="recommendation-next" class="button secondary" type="button">Show next 3 →</button></nav>
         <p class="recommendation-assumption">Completion times are estimates. Weeks assume your full weekly time budget goes toward one game.</p>
       </section>
-      <section id="play-plan" hidden aria-label="Your play plan">
-        <h2>Currently Playing</h2>
-        <p id="playing-empty">Choose a single-player game from your library and select Start Playing.</p>
-        <div id="currently-playing" class="game-grid"></div>
-        <h2>Play Next</h2>
-        <div class="queue-sort-controls">
-          <label>Order<select id="queue-sort"><option value="manual">Manual order</option><option value="shortest">Shortest → longest</option><option value="longest">Longest → shortest</option></select></label>
-          <label>Completion goal<select id="queue-sort-goal"><option value="main_story_hours">Main story</option><option value="main_extra_hours">Story + extras</option><option value="completionist_hours">Completionist</option></select></label>
-          <button id="queue-apply-sort" class="button secondary" type="button" disabled>Apply order</button>
-        </div>
-        <p id="queue-sort-status" class="queue-sort-status" role="status" aria-live="polite"></p>
-        <p id="queue-empty">Add games from your library to build your next adventures.</p>
-        <ol id="play-next"></ol>
-      </section>
+      </dialog>
       <div class="library-heading"><div><h2>My library <span id="library-badge">0</span></h2><p>All your games. A fresh perspective.</p></div><button id="sync-button" class="button primary" disabled><span>↻</span> Sync Steam library</button></div>
       <details class="library-maintenance">
         <summary>Library maintenance <span>Completion data and match review</span></summary>

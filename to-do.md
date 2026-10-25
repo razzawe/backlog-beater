@@ -381,3 +381,5 @@ Use generic metadata rules; personal exclusions remain user-controlled.
 
 - [x] Add Play Next shortest/longest previews by completion goal, stable ties,
   missing estimates last, and explicit Apply order via the existing queue API.
+
+- [x] Move recommendation discovery into a modal opened by a visible card above Play Next; shorten the signed-in hero and align recommendation preference inputs.

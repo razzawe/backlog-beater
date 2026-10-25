@@ -831,3 +831,5 @@ Signing out resets sort controls. Sort preferences themselves are not saved.
 All 17 frontend tests and mocked desktop/mobile browser checks pass, including
 no PUT before Apply, stable/missing ordering, category selection, saved order,
 and unchanged active games. Static assets are available on browser refresh.
+
+The library keeps Currently Playing and Play Next on the main page, with a discovery card above Play Next opening recommendations in a native modal. The card is quieter while a game is active. Signed-in users see a shorter hero retaining the headline and artwork; signed-out users retain the full introduction. Recommendation ranking and queue persistence are unchanged.

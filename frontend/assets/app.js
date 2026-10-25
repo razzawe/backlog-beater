@@ -109,6 +109,7 @@ function refreshAccount() {
   $('sync-button').disabled = !user?.steam_id || state.loading;
 }
 function renderLibrary() {
+  $('library-view').classList.toggle('short-hero', Boolean(state.user));
   recommendationUI.refresh();
   renderPlan();
   const libraryGames = state.games.filter(game => ($('library-include-free').checked || game.is_free !== true) && ($('library-include-tests').checked || game.is_test_build !== true) && ($('library-include-excluded').checked || game.recommendation_hidden !== true));
@@ -235,11 +236,17 @@ function moveQueued(index, offset) {
   [game_ids[index], game_ids[index + offset]] = [game_ids[index + offset], game_ids[index]];
   return changeQueue('/games/queue', 'PUT', { game_ids });
 }
+const discoveryDialog = $('recommendation-discovery');
+$('find-game').addEventListener('click', () => discoveryDialog.showModal());
+$('close-discovery').addEventListener('click', () => discoveryDialog.close());
+discoveryDialog.addEventListener('click', event => { if (event.target === discoveryDialog) { const rect = discoveryDialog.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) discoveryDialog.close(); } });
 function renderPlan() {
   $('play-plan').hidden = !state.user;
   const playing = state.games.filter(game => game.completion_status === 'in progress');
   $('currently-playing').replaceChildren(...playing.map(gameCard));
   $('playing-empty').hidden = playing.length > 0;
+  $('discovery-card').classList.toggle('is-playing', playing.length > 0);
+  if (!state.user && discoveryDialog.open) discoveryDialog.close();
   const games = new Map(state.games.map(game => [game.id, game]));
   const preview = $('queue-sort').value !== 'manual';
   const displayQueue = sortPlayQueue(state.queue, state.games, $('queue-sort').value, $('queue-sort-goal').value);
