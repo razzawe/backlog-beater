@@ -111,3 +111,19 @@ class HLTBLookupTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await lookup_candidates("Example", timeout_seconds=timeout)
         self.provider.assert_not_called()
+
+    async def test_retryable_transport_status_and_retry_after(self):
+        import aiohttp
+        from enrichment_service.hltb import HLTBTemporaryError
+        for error in (aiohttp.ClientConnectionError('offline'),
+                      aiohttp.ClientResponseError(None, (), status=503),
+                      aiohttp.ClientResponseError(None, (), status=429, headers={'Retry-After': '120'})):
+            self.search.side_effect = error
+            with self.assertRaises(HLTBTemporaryError) as raised:
+                await lookup_candidates('Example')
+            if isinstance(error, aiohttp.ClientResponseError) and error.status == 429:
+                self.assertEqual(raised.exception.retry_after, 120)
+        self.search.side_effect = aiohttp.ClientResponseError(None, (), status=403)
+        with self.assertRaises(HLTBLookupError) as raised:
+            await lookup_candidates('Example')
+        self.assertNotIsInstance(raised.exception, HLTBTemporaryError)

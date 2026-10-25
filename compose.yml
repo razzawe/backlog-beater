@@ -50,6 +50,20 @@ services:
     healthcheck: *service_health
     command: ["python", "-m", "uvicorn", "library_service.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "172.30.80.2"]
 
+  recommendation:
+    build:
+      context: ./backend
+      dockerfile: recommendation_service/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://backlog:${POSTGRES_PASSWORD:-backlog_dev_password}@db:5432/backlog_beater
+    networks: [gateway, database]
+    depends_on:
+      auth:
+        condition: service_healthy
+    healthcheck: *service_health
+    command: ["python", "-m", "uvicorn", "recommendation_service.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "172.30.80.2"]
+
   sync:
     build:
       context: ./backend
@@ -136,6 +150,42 @@ services:
       start_period: 30s
     stop_grace_period: 30s
 
+  metadata-worker:
+    build:
+      context: ./backend
+      dockerfile: metadata-worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://backlog:${POSTGRES_PASSWORD:-backlog_dev_password}@db:5432/backlog_beater
+      ENRICHMENT_BROKER_URL: redis://enrichment-redis:6379/0
+    networks: [database, enrichment_queue, enrichment_egress]
+    depends_on:
+      db:
+        condition: service_healthy
+      enrichment-redis:
+        condition: service_healthy
+    command: ["python", "-m", "celery", "-A", "metadata_worker.worker:app", "worker", "--loglevel=INFO", "--queues=steam_metadata", "--concurrency=1", "--hostname=metadata@%h"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -m celery -A metadata_worker.worker:app inspect ping --destination=metadata@$$HOSTNAME --timeout=3 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+
+  enrichment-scheduler:
+    build:
+      context: ./backend
+      dockerfile: enrichment-worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      ENRICHMENT_BROKER_URL: redis://enrichment-redis:6379/0
+    networks: [enrichment_queue]
+    depends_on:
+      enrichment-redis:
+        condition: service_healthy
+    command: ["python", "-m", "celery", "-A", "enrichment_worker.worker:app", "beat", "--loglevel=INFO", "--schedule=/tmp/enrichment-beat"]
+
   nginx:
     image: nginx:stable-alpine
     restart: unless-stopped
@@ -152,6 +202,8 @@ services:
         ipv4_address: 172.30.80.2
       frontend:
     depends_on:
+      recommendation:
+        condition: service_healthy
       auth:
         condition: service_healthy
       library:

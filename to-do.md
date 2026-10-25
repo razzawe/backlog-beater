@@ -8,6 +8,14 @@
 
 - [ ] Add persistent enrichment jobs and atomic per-game claims in `enrichment-worker/enrichment_worker/jobs.py`, backed by a shared database model and migration. Enforce one job row per catalog game; atomically claim scheduling and pending-to-running execution, pass an attempt token to each task, and verify it when saving outcomes. Keep job lifecycle separate from match outcomes. Add recovery for broker publication failures and expired running jobs; pending-job expiry must account for queue backlog. Test concurrent claims, duplicate deliveries, stale attempts, and recovery before using job state for UI progress.
 
+Implemented job infrastructure: migration 006, per-game ready/pending/running/completed/failed
+states, token-owned claims, durable pending dispatch, periodic recovery, and explicit retries.
+Validated October 24, 2026: all 128 backend tests pass against fresh isolated
+PostgreSQL/Redis, including concurrent claims, duplicate deliveries, publication
+recovery, stale attempts, and migration 006 rerun/data-preservation/constraint checks.
+Application migration/deployment and durable sync-to-import event delivery remain
+separate work.
+
 ## Accounts and authentication
 
 - [x] Register and log in with hashed passwords and JWT authentication.
@@ -86,7 +94,7 @@ versioned events without importing enrichment implementation code.
 
 ## Enrichment assessment and matching follow-up
 
-- [ ] Redesign access to Needs Review and Missing Completion Data: the user dislikes the current buttons and wants them changed. Propose an alternative navigation/presentation before implementing the redesign; retain access to both assessment views and their counts.
+- [x] Redesign access to Needs Review and Missing Completion Data: the user dislikes the current buttons and wants them changed. Propose an alternative navigation/presentation before implementing the redesign; retain access to both assessment views and their counts.
 
 - [x] Clean trademark symbols and whitespace before HLTB search while preserving meaningful title wording.
 - [x] Ignore explicitly typed DLC/expansion competitors only when a unique exact base-game match exists; preserve review for uncertain near titles and prefix differences.
@@ -114,11 +122,20 @@ more than 12 hours, with reasons and approximate weeks to finish.
 
 ### 2. Add shared catalog metadata
 
-- [ ] Add shared genre IDs/names, nullable single-player support (yes/no/unknown), and metadata lookup/success timestamps; create a migration that preserves existing games, ownership, progress, HLTB data, and queues.
-- [ ] Implement a validated Steam Store metadata adapter using `GET https://store.steampowered.com/api/appdetails?appids=<steam_app_id>`; read `data.genres` and `data.categories`, check the per-app success flag, and classify mixed single-player/multiplayer games as single-player eligible.
-- [ ] Treat unavailable, missing, or malformed metadata as unknown rather than multiplayer-only; never infer game mode from a name or a failed Store lookup. Use stable genre IDs internally rather than localized display labels.
-- [ ] Add background metadata collection after imports and a bounded backfill command for existing catalog games. Reuse the shared catalog across owners; avoid external metadata requests during Steam sync or recommendation HTTP requests.
-- [ ] Add metadata request pacing, timeouts, bounded delayed retries/cooldowns, freshness caching, and per-game deduplication so repeated imports do not repeat unnecessary Store requests. Keep this separate from HLTB provider limits.
+Implemented metadata models/migration 007, Store adapter, token-owned jobs and
+persistence, import integration, shared Redis pacing, periodic recovery, bounded
+backfill, and worker concurrency two. Successful metadata is collected once;
+failed jobs require explicit retry. All 148 backend tests and Compose validation
+pass. Migrations 006/007 applied locally and worker/scheduler rebuilt; five live
+Store lookups completed successfully with persisted genres and single-player
+classification. Worker concurrency two confirmed. Supported genre UI, unavailable
+app live QA, and automatic delayed retry policy remain separate work.
+
+- [x] Add shared genre IDs/names, nullable single-player support (yes/no/unknown), and metadata lookup/success timestamps; create a migration that preserves existing games, ownership, progress, HLTB data, and queues.
+- [x] Implement a validated Steam Store metadata adapter using `GET https://store.steampowered.com/api/appdetails?appids=<steam_app_id>`; read `data.genres` and `data.categories`, check the per-app success flag, and classify mixed single-player/multiplayer games as single-player eligible.
+- [x] Treat unavailable, missing, or malformed metadata as unknown rather than multiplayer-only; never infer game mode from a name or a failed Store lookup. Use stable genre IDs internally rather than localized display labels.
+- [x] Add background metadata collection after imports and a bounded backfill command for existing catalog games. Reuse the shared catalog across owners; avoid external metadata requests during Steam sync or recommendation HTTP requests.
+- [ ] Add metadata request pacing, timeouts, bounded delayed retries/cooldowns for failures, reuse of successfully collected metadata without automatic refresh, and per-game deduplication so repeated imports do not repeat unnecessary Store requests. Keep this separate from HLTB provider limits.
 - [ ] Verify stored metadata for representative single-player, mixed-mode, multiplayer-only, and unavailable/delisted games; expose supported genre choices to the recommendation form from stored metadata or a defined taxonomy.
 
 ### 3. Build the recommendation service
@@ -271,3 +288,96 @@ Functional goal: users can choose the single-player games they are currently pla
 - [x] Add a responsive dark library UI in frontend/ using existing APIs, with account login followed by Steam linking.
 - [x] Verify browser account flows, Steam redirect/cookie setup, callback errors, responsive layout, and mocked library interactions; three frontend unit tests, five gateway checks, and all 42 backend tests pass against a fresh isolated test database.
 - [x] Complete real Steam browser sign-in and verify library import and status updates through the UI (confirmed by user).
+
+## HLTB pacing and retry follow-up
+
+- [x] Add one shared HLTB lookup lease, three-second start spacing, and safe
+  countdown deferral for enrichment and review refreshes.
+- [x] Add migration 008 for HLTB attempt counts/due times; retry identifiable
+  temporary failures after at least one/five minutes, three total attempts.
+- [x] Preserve terminal no-match/ambiguous results, respect exposed Retry-After,
+  use shared cooldowns, and reset the retry budget only on manual retry.
+- [ ] Broaden throttling detection if the wrapper can expose currently hidden
+  HTTP status/headers; do not classify opaque or malformed results as transient.
+
+HLTB limiter validated: 154 backend tests pass; migration 008 applied locally and
+worker/scheduler rebuilt. Existing failed jobs were not reset or rerun.
+
+## Separate metadata queue and worker
+
+- [x] Declare `steam_metadata` and route metadata collection/maintenance to it.
+- [x] Add a dedicated metadata worker using the existing image (configuration only; not started).
+- [x] Set HLTB worker concurrency to one; remove the active gate and busy deferrals. Short spacing waits locally; long provider cooldowns defer without consuming attempts.
+- [x] Deploy the complete split locally: all images rebuilt, database/Redis reset, gateway HTTP 200, both workers healthy with correct queues and concurrency one. Fresh user sync remains the live task check.
+
+### Metadata source separation
+
+Metadata code now lives in `backend/metadata-worker/metadata_worker/`: `tasks.py`,
+`worker.py`, `metadata_jobs.py`, `steam_metadata.py`, `steam_pacing.py`, and
+`backfill_metadata.py`. It has its own `backend/metadata-worker/Dockerfile`.
+Compose's metadata worker and health check use `metadata_worker.worker:app`.
+Task names, Redis queue names, database schemas, and attempt-token behavior are
+unchanged. The existing Beat scheduler still routes metadata maintenance to
+`steam_metadata`; no second scheduler is required.
+
+The import-event handler remains in the enrichment package and imports metadata
+job creation/dispatch helpers. Its image includes the metadata package for that
+explicit dependency, but no longer defines metadata task execution in its own
+`tasks.py`. The metadata image does not copy HLTB enrichment implementation.
+The test environment includes the new metadata package path. No app containers
+have been started or redeployed for this source move; the HLTB concurrency/gate
+change remains a separate next step.
+
+- [x] Collect validated Steam `header_image` URLs with metadata; replace only
+  missing/legacy fallback covers and preserve saved covers across repeated syncs.
+  All 159 backend tests pass; no schema migration or automatic metadata rerun.
+
+- [x] Add game-mode filters with verified single/multiplayer flags, mixed-mode
+  support, unknown handling, combined search/progress, and result counts.
+
+Game-mode filters deployed: 162 backend/10 frontend tests pass; migration 009
+applied; 105 existing records filled, 10 unknown. Visual browser QA pending.
+
+## Barebones recommendation service milestones
+
+- [x] Step 1: service package, internal health endpoint, and validated request
+  model (hours/week, target weeks, genre IDs, completion goal).
+- [x] Step 2: pure eligibility/ranking with strict budget and queued games included; deterministic top three and factual reasons.
+- [x] Step 3: ownership-scoped repository with complete personal HLTB override precedence, mode/genre metadata, and user-specific Play Next positions.
+- [x] Step 4: authenticated endpoint, response reasons/coverage, Dockerfile, Compose/Nginx. All 183 backend tests and live auth/ownership/budget gateway checks pass.
+- [x] Recommendation frontend: preference form, genre choices, budget, cards, plan actions, loading/error/empty states, and stale-response protection. 184 backend/12 frontend tests and mocked desktop/mobile browser checks pass.
+- [ ] Later: real-account browser acceptance, history-based interests and user feedback.
+
+Play Next is included in the agreed barebones MVP and its saved order is never
+mutated by recommendations. Earlier exclusion suggestions are superseded.
+
+- [x] Replace recommendation genre checkbox wall with searchable dropdown,
+  removable chips, Clear selection, and keyboard/outside-click dismissal.
+
+- [x] Add recommendation Back/Show next 3 navigation, page ranges, and validated
+  offsets; 186 backend/12 frontend tests and mocked browser pagination checks pass.
+
+- [x] Smooth recommendation pagination: retain cards/height during loading,
+  stable inline loading state, and preserve results with Retry on page errors.
+
+- [x] Exclude Steam-verified free games by default (optional opt-in), and add
+  persistent per-user Hide/Show in recommendations without removing ownership,
+  progress, overrides, or queue entries. Add migration 010 and field-only backfill.
+
+- [x] Default library to Not started, hide verified free games with an opt-in,
+  and replace prominent assessment tabs with collapsed Library maintenance.
+
+- [x] Resolve conflicting Steam free flags using explicit genre 37, and hide
+  explicitly named test builds by default with a library opt-in. This title rule
+  does not replace future verified Steam app-type classification.
+
+Catalog classification constraint: no hardcoded per-game bans or app-ID overrides.
+Use generic metadata rules; personal exclusions remain user-controlled.
+
+- [x] Promote trailers to stored metadata/API fields, ordinary paginated deck,
+  direct app callbacks, and missing-video fallbacks; remove static prototype.
+- [ ] Future: trailer URL freshness/recovery policy if Steam changes assets;
+  keep video delivery direct and the single-active-game focus flow separate.
+
+- [x] Add Play Next shortest/longest previews by completion goal, stable ties,
+  missing estimates last, and explicit Apply order via the existing queue API.

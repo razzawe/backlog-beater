@@ -36,3 +36,48 @@ test('assessment views separate pending, review, missing and resolved games', ()
   assert.equal(selectGames(data, 'missing', 'Example', 'default').length, 5);
   assert.equal(selectGames(data, 'missing', 'unrelated', 'default').length, 0);
 });
+
+test('game mode filters distinguish mixed games and unknown metadata', () => {
+  const modes = [
+    {id: 1, single_player: true, multiplayer: false},
+    {id: 2, single_player: false, multiplayer: true},
+    {id: 3, single_player: true, multiplayer: true},
+    {id: 4, single_player: null, multiplayer: null},
+    {id: 5, single_player: false, multiplayer: false},
+  ].map(g => ({...g, name: 'Example', steam_app_id: g.id, completion_status: 'not started'}));
+  const ids = mode => selectGames(modes, 'all', '', 'appid', mode).map(g => g.id);
+  assert.deepEqual(ids('single'), [1, 3]);
+  assert.deepEqual(ids('multi'), [2, 3]);
+  assert.deepEqual(ids('single-only'), [1]);
+  assert.deepEqual(ids('multi-only'), [2]);
+  assert.deepEqual(ids('unknown'), [4]);
+  assert.equal(ids('all').length, 5);
+  assert.equal(selectGames(modes, 'finished', '', 'appid', 'single').length, 0);
+});
+
+test('library hides verified free games unless explicitly included', () => {
+  const entries=[
+    {id:1,steam_app_id:1,name:'Paid',completion_status:'not started',is_free:false},
+    {id:2,steam_app_id:2,name:'Free',completion_status:'not started',is_free:true},
+    {id:3,steam_app_id:3,name:'Unknown',completion_status:'finished',is_free:null},
+  ];
+  assert.deepEqual(selectGames(entries,'all','','appid').map(g=>g.id),[1,3]);
+  assert.deepEqual(selectGames(entries,'not started','','appid').map(g=>g.id),[1]);
+  assert.deepEqual(selectGames(entries,'not started','','appid','all',true).map(g=>g.id),[1,2]);
+  assert.equal(entries.length,3);
+});
+
+test('test builds have an independent opt-in', () => {
+  const games=[{id:1,steam_app_id:1,name:'Game',completion_status:'not started',is_test_build:false},
+    {id:2,steam_app_id:2,name:'Game Public Test',completion_status:'not started',is_test_build:true}];
+  assert.deepEqual(selectGames(games,'all','','appid','all',true).map(g=>g.id),[1]);
+  assert.deepEqual(selectGames(games,'all','','appid','all',false,true).map(g=>g.id),[1,2]);
+});
+
+
+test('personal exclusions can be restored through an independent filter', () => {
+  const entries=[{id:1,steam_app_id:1,name:'Game',completion_status:'not started',recommendation_hidden:true}];
+  assert.deepEqual(selectGames(entries,'all','','appid'),[]);
+  assert.equal(selectGames(entries,'all','','appid','all',false,false,true).length,1);
+  assert.equal(entries[0].recommendation_hidden,true);
+});

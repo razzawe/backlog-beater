@@ -26,7 +26,7 @@ services:
       DATABASE_URL: postgresql+psycopg://test:test@test-db:5432/steam_test
       HLTB_REVIEW_CACHE_URL: redis://test-cache:6379/0
       SECRET_KEY: isolated-test-secret-key-at-least-32-characters
-      PYTHONPATH: /workspace/backend
+      PYTHONPATH: /workspace/backend:/workspace/backend/metadata-worker
       PYTHONDONTWRITEBYTECODE: "1"
     depends_on:
       test-db:

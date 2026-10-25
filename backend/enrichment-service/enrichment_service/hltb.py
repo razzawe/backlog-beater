@@ -1,6 +1,9 @@
 """HLTB candidate lookup only; matching and persistence belong to later steps."""
 
 import asyncio
+import aiohttp
+from email.utils import parsedate_to_datetime
+from datetime import UTC, datetime
 import math
 import unicodedata
 from dataclasses import dataclass
@@ -12,7 +15,13 @@ class HLTBLookupError(Exception):
     """The provider failed or returned unusable data; this is not 'no match'."""
 
 
-class HLTBLookupTimeout(HLTBLookupError):
+class HLTBTemporaryError(HLTBLookupError):
+    def __init__(self, message, *, retry_after=0):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class HLTBLookupTimeout(HLTBTemporaryError):
     """The lookup exceeded its overall time budget."""
 
 
@@ -102,6 +111,22 @@ async def lookup_candidates(title: str, *, timeout_seconds: float = 20) -> list[
         return [_candidate(entry) for entry in entries]
     except TimeoutError as error:
         raise HLTBLookupTimeout("HLTB lookup timed out") from error
+    except aiohttp.ClientResponseError as error:
+        if error.status == 429 or 500 <= error.status <= 599:
+            delay = 0
+            raw = (error.headers or {}).get("Retry-After")
+            if raw:
+                try:
+                    delay = max(0, float(raw))
+                except ValueError:
+                    try:
+                        delay = max(0, (parsedate_to_datetime(raw) - datetime.now(UTC)).total_seconds())
+                    except (ValueError, TypeError, OverflowError):
+                        pass
+            raise HLTBTemporaryError("HLTB temporarily unavailable", retry_after=delay) from error
+        raise HLTBLookupError("HLTB request rejected") from error
+    except aiohttp.ClientConnectionError as error:
+        raise HLTBTemporaryError("HLTB connection failed") from error
     except HLTBLookupError:
         raise
     except Exception as error:

@@ -2,7 +2,7 @@ import os
 from datetime import UTC, datetime
 from enum import Enum
 
-from sqlalchemy import CheckConstraint, Column, DateTime, Enum as SQLAlchemyEnum, ForeignKeyConstraint, JSON
+from sqlalchemy import Boolean, false, CheckConstraint, Column, DateTime, Enum as SQLAlchemyEnum, ForeignKeyConstraint, Index, JSON
 from sqlmodel import Field, Session, SQLModel, create_engine
 
 
@@ -52,6 +52,7 @@ class OwnedGame(SQLModel, table=True):
 
     user_id: int = Field(foreign_key="user.id", primary_key=True)
     game_id: int = Field(foreign_key="game.id", primary_key=True)
+    recommendation_hidden: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default=false()))
     completion_status: CompletionStatus = Field(
         default=CompletionStatus.NOT_STARTED,
         sa_column=Column(
@@ -146,3 +147,75 @@ def get_session():
     Close the session when the caller finishes using it."""
     with Session(engine) as session:
         yield session
+
+
+class JobStatus(str, Enum):
+    READY = "ready"
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class EnrichmentJob(SQLModel, table=True):
+    __tablename__ = "enrichment_jobs"
+    game_id: int = Field(foreign_key="game.id", primary_key=True)
+    status: JobStatus = Field(default=JobStatus.READY, sa_column=Column(SQLAlchemyEnum(
+        JobStatus, values_callable=lambda values: [v.value for v in values],
+        native_enum=False, create_constraint=True, name="enrichment_job_status",
+        validate_strings=True), nullable=False))
+    attempt_token: str | None = None
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), nullable=False))
+    last_published_at: datetime | None = Field(default=None,
+        sa_column=Column(DateTime(timezone=True)))
+    last_error: str | None = None
+    attempt_count: int = Field(default=0, nullable=False)
+    next_attempt_at: datetime | None = Field(default=None,
+        sa_column=Column(DateTime(timezone=True)))
+    __table_args__ = (Index("ix_enrichment_jobs_status_updated", "status", "updated_at"),)
+
+
+class GameMetadata(SQLModel, table=True):
+    """Shared Steam Store metadata; unknown game mode remains NULL.
+
+    Genres contain objects with stable string IDs and display names. An empty
+    list does not establish successful collection; consult last_success_at.
+    """
+    __tablename__ = "game_metadata"
+    game_id: int = Field(foreign_key="game.id", primary_key=True)
+    single_player: bool | None = None
+    multiplayer: bool | None = None
+    is_free: bool | None = None
+    trailer_url: str | None = None
+    trailer_thumbnail: str | None = None
+    trailer_title: str | None = None
+    trailer_format: str | None = None
+    genres: list[dict[str, str]] = Field(default_factory=list,
+        sa_column=Column(JSON, nullable=False))
+    last_lookup_at: datetime | None = Field(default=None,
+        sa_column=Column(DateTime(timezone=True)))
+    last_success_at: datetime | None = Field(default=None,
+        sa_column=Column(DateTime(timezone=True)))
+    last_error: str | None = None
+    __table_args__ = (
+        CheckConstraint("json_typeof(genres) = 'array'",
+                        name="game_metadata_genres_array").ddl_if(dialect="postgresql"),
+    )
+
+
+class GameMetadataJob(SQLModel, table=True):
+    """Steam metadata work progresses independently of HLTB attempts."""
+    __tablename__ = "game_metadata_jobs"
+    game_id: int = Field(foreign_key="game.id", primary_key=True)
+    status: JobStatus = Field(default=JobStatus.READY, sa_column=Column(SQLAlchemyEnum(
+        JobStatus, values_callable=lambda values: [v.value for v in values],
+        native_enum=False, create_constraint=True, name="game_metadata_job_status",
+        validate_strings=True), nullable=False))
+    attempt_token: str | None = None
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), nullable=False))
+    last_published_at: datetime | None = Field(default=None,
+        sa_column=Column(DateTime(timezone=True)))
+    last_error: str | None = None
+    __table_args__ = (Index("ix_game_metadata_jobs_status_updated", "status", "updated_at"),)

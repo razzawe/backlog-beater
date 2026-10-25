@@ -83,7 +83,7 @@ def insert_missing_games(session: Session, library: OwnedGames) -> int:
     session.execute(statement.on_conflict_do_update(
         index_elements=["steam_app_id"],
         set_={"name": func.coalesce(statement.excluded.name, Game.name),
-              "cover_url": statement.excluded.cover_url},
+              "cover_url": func.coalesce(Game.cover_url, statement.excluded.cover_url)},
     ))
     return inserted
 

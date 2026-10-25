@@ -52,6 +52,10 @@ def save_personal_override(session, user_id, game_id, *, candidate_index, expect
 
 class EnrichmentStorageTests(unittest.TestCase):
     def setUp(self):
+        for target, value in (("wait_for_slot", 0), ("cooldown", None)):
+            mocked = patch("enrichment_worker.tasks.hltb_pacing." + target, return_value=value)
+            mocked.start()
+            self.addCleanup(mocked.stop)
         self.assertEqual(engine.url.database, "steam_test")
         from enrichment_service.review_cache import client
         client.flushdb()
@@ -255,11 +259,23 @@ class EnrichmentStorageTests(unittest.TestCase):
                 session.commit()
             session.rollback()
 
+    def run_job(self, game_id):
+        from enrichment_worker import jobs
+        from enrichment_worker.tasks import app, enrich_game
+        with Session(engine) as session:
+            jobs.create_ready(session, [game_id] if session.get(Game, game_id) else [])
+            session.commit()
+        with patch.object(app, "connection_for_write"), patch.object(app, "send_task") as send:
+            jobs.dispatch(app, [game_id])
+        if not send.called:
+            return "skipped"
+        return enrich_game.run(*send.call_args.kwargs["args"])
+
     def test_task_enriches_once_and_reuses_shared_game(self):
         from enrichment_worker.tasks import enrich_game
         with patch("enrichment_worker.tasks.lookup_candidates", new_callable=AsyncMock, return_value=[self.first]) as lookup:
-            self.assertEqual(enrich_game.run(self.game_id), "matched")
-            self.assertEqual(enrich_game.run(self.game_id), "skipped")
+            self.assertEqual(self.run_job(self.game_id), "matched")
+            self.assertEqual(self.run_job(self.game_id), "skipped")
         lookup.assert_awaited_once()
 
     def test_task_failure_can_retry_without_losing_ownership(self):
@@ -267,8 +283,17 @@ class EnrichmentStorageTests(unittest.TestCase):
         from enrichment_service.hltb import HLTBLookupTimeout
         with patch("enrichment_worker.tasks.lookup_candidates", new_callable=AsyncMock,
                    side_effect=[HLTBLookupTimeout("timeout"), [self.first]]):
-            self.assertEqual(enrich_game.run(self.game_id), "failed")
-            self.assertEqual(enrich_game.run(self.game_id), "matched")
+            self.assertEqual(self.run_job(self.game_id), "failed")
+            from app.database import EnrichmentJob, JobStatus
+            with Session(engine) as session:
+                job = session.get(EnrichmentJob, self.game_id)
+                self.assertEqual(job.status, JobStatus.READY)
+                self.assertEqual(job.attempt_count, 1)
+                self.assertIsNotNone(job.next_attempt_at)
+                job.next_attempt_at = None
+                session.add(job)
+                session.commit()
+            self.assertEqual(self.run_job(self.game_id), "matched")
         with Session(engine) as session:
             self.assertEqual(len(session.exec(select(OwnedGame)).all()), 2)
             self.assertIsNone(session.get(GameEnrichment, self.game_id).last_error)
@@ -280,8 +305,8 @@ class EnrichmentStorageTests(unittest.TestCase):
                 save_match_result(session, self.game_id, match_candidates("Example", candidates))
                 session.commit()
             with patch("enrichment_worker.tasks.lookup_candidates", new_callable=AsyncMock) as lookup:
-                self.assertEqual(enrich_game.run(self.game_id), "skipped")
-                self.assertEqual(enrich_game.run(999999), "skipped")
+                self.assertEqual(self.run_job(self.game_id), "skipped")
+                self.assertEqual(self.run_job(999999), "skipped")
                 lookup.assert_not_awaited()
 
     def test_task_rejects_changed_title(self):
@@ -294,7 +319,7 @@ class EnrichmentStorageTests(unittest.TestCase):
                 session.commit()
             return [self.first]
         with patch("enrichment_worker.tasks.lookup_candidates", side_effect=lookup):
-            self.assertEqual(enrich_game.run(self.game_id), "stale")
+            self.assertEqual(self.run_job(self.game_id), "stale")
         with Session(engine) as session:
             self.assertIsNone(session.get(GameEnrichment, self.game_id))
 
@@ -306,9 +331,38 @@ class EnrichmentStorageTests(unittest.TestCase):
                 session.commit()
             return [self.first]
         with patch("enrichment_worker.tasks.lookup_candidates", side_effect=lookup):
-            self.assertEqual(enrich_game.run(self.game_id), "stale")
+            self.assertEqual(self.run_job(self.game_id), "stale")
         with Session(engine) as session:
             self.assertEqual(session.get(Game, self.game_id).hltb_id, 20)
+
+    def test_task_cannot_save_after_its_attempt_is_replaced(self):
+        from enrichment_worker.tasks import app, enrich_game
+        from enrichment_worker import jobs
+        from app.database import EnrichmentJob, JobStatus
+        with Session(engine) as session:
+            jobs.create_ready(session, [self.game_id])
+            session.commit()
+        with patch.object(app, "connection_for_write"), patch.object(app, "send_task") as send:
+            jobs.dispatch(app, [self.game_id])
+        args = send.call_args.kwargs["args"]
+
+        async def replace_attempt(*unused, **kwargs):
+            with Session(engine) as session:
+                job = session.get(EnrichmentJob, self.game_id)
+                job.status = JobStatus.PENDING
+                job.attempt_token = "replacement-attempt"
+                session.add(job)
+                session.commit()
+            return [self.first]
+
+        with patch("enrichment_worker.tasks.lookup_candidates", side_effect=replace_attempt):
+            self.assertEqual(enrich_game.run(*args), "stale")
+        with Session(engine) as session:
+            self.assertIsNone(session.get(GameEnrichment, self.game_id))
+            self.assertIsNone(session.get(Game, self.game_id).hltb_id)
+            job = session.get(EnrichmentJob, self.game_id)
+            self.assertEqual(job.status, JobStatus.PENDING)
+            self.assertEqual(job.attempt_token, "replacement-attempt")
 
     def test_task_preserves_personal_override(self):
         from enrichment_worker.tasks import enrich_game
@@ -319,7 +373,7 @@ class EnrichmentStorageTests(unittest.TestCase):
             session.delete(shared)
             session.commit()
         with patch("enrichment_worker.tasks.lookup_candidates", new_callable=AsyncMock, return_value=[self.first]):
-            self.assertEqual(enrich_game.run(self.game_id), "matched")
+            self.assertEqual(self.run_job(self.game_id), "matched")
         with Session(engine) as session:
             self.assertEqual(session.get(PersonalHLTBOverride, (self.owner, self.game_id)).hltb_id, 20)
 
@@ -333,9 +387,12 @@ class EnrichmentStorageTests(unittest.TestCase):
              patch("enrichment_worker.tasks.app.send_task") as send:
             self.assertEqual(games_imported.run(schema_version=1,
                 steam_app_ids=[123, 123, 456, 789, 999]), 1)
-        send.assert_called_once()
-        self.assertEqual(send.call_args.args, ("enrichment.enrich_game",))
-        self.assertEqual(send.call_args.kwargs["args"], [self.game_id])
+        hltb_calls = [call for call in send.call_args_list if call.args == ("enrichment.enrich_game",)]
+        self.assertEqual(len(hltb_calls), 1)
+        self.assertEqual(hltb_calls[0].kwargs["args"][0], self.game_id)
+        self.assertTrue(hltb_calls[0].kwargs["args"][1])
+        self.assertEqual(len([call for call in send.call_args_list
+                              if call.args == ("catalog.collect_metadata",)]), 3)
 
     def test_import_event_rejects_invalid_contract(self):
         from enrichment_worker.tasks import games_imported
@@ -375,7 +432,12 @@ class EnrichmentStorageTests(unittest.TestCase):
         review_cache.client.delete(review_cache.key(self.game_id))
         token = review_cache.claim_refresh(self.game_id)
         with patch('enrichment_worker.tasks.lookup_candidates', new_callable=AsyncMock, side_effect=HLTBLookupTimeout('timeout')):
-            self.assertEqual(refresh_review.run(self.game_id, token), 'failed')
+            from celery.exceptions import Retry
+            with patch.object(refresh_review, "retry", side_effect=Retry()) as retry:
+                with self.assertRaises(Retry):
+                    refresh_review.run(self.game_id, token)
+                self.assertEqual(retry.call_args.kwargs["countdown"], 60)
+                self.assertEqual(retry.call_args.kwargs["args"][2], 1)
         self.assertEqual(review_cache.get_review(self.game_id)['status'], 'lookup_failed')
         self.assertLessEqual(review_cache.client.ttl(review_cache.key(self.game_id)), 60)
         with Session(engine) as session:

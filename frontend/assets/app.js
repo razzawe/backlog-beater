@@ -1,7 +1,17 @@
+import { mountTrailers } from './trailers/player.js';
+import { mountRecommendations } from './recommendations.js';
 import { enrichmentProgress } from './enrichment.js';
-import { STATUSES, summarize, selectGames, safeCoverUrl, formatHours, enrichmentAssessment, enrichmentReason } from './library.js';
+import { STATUSES, summarize, selectGames, sortPlayQueue, safeCoverUrl, formatHours, enrichmentAssessment, enrichmentReason } from './library.js';
 const $ = id => document.getElementById(id);
-const state = { token: sessionStorage.getItem('backlog-token'), user: null, games: [], queue: [], planBusy: false, filter: 'all', mode: 'login', generation: 0, loading: false };
+const state = { token: sessionStorage.getItem('backlog-token'), user: null, games: [], queue: [], planBusy: false, filter: 'not started', mode: 'login', generation: 0, loading: false };
+const recommendationUI = mountRecommendations({ api, getState: () => state, startPlaying, hideRecommendation: game => setRecommendationHidden(game, true), addToQueue: id => changeQueue('/games/queue/' + id, 'POST') });
+mountTrailers({api,getState:()=>state,performAction:async(action,id)=>{
+ const game=state.games.find(g=>g.id===id);if(!game)return {ok:false};
+ if(action==='start')await startPlaying(game);
+ else if(action==='queue')await changeQueue('/games/queue/'+id,'POST');
+ else if(action==='exclude')await setRecommendationHidden(game,true);
+ return {ok:action==='start'?game.completion_status==='in progress':action==='queue'?state.queue.includes(id):game.recommendation_hidden===true};
+}});
 const labels = { 'not started': 'Not started', 'in progress': 'Playing', finished: 'Finished' };
 function notice(message, error = false) { $('notice').textContent = message; $('notice').classList.toggle('error', error); $('notice').hidden = !message; }
 let enrichmentTimer;
@@ -63,6 +73,8 @@ function view(name) {
 function signout(message = '') {
   stopEnrichment(); $('enrichment-progress').hidden = true;
   if ($('hltb-review').open) $('hltb-review').close();
+  $('queue-sort').value = 'manual'; $('queue-sort-goal').value = 'main_story_hours';
+  state.filter = 'not started'; $('library-include-free').checked = false; $('library-include-tests').checked = false; $('library-include-excluded').checked = false; document.querySelector('.library-maintenance').open = false;
   state.generation++; state.token = null; state.user = null; state.games = []; state.queue = []; state.planBusy = false; state.loading = false;
   sessionStorage.removeItem('backlog-token'); refreshAccount(); renderLibrary(); view('account'); notice(message);
 }
@@ -75,6 +87,7 @@ async function api(path, { method = 'GET', body, authenticated = true } = {}) {
   if (!response.ok) {
     if (response.status === 401 && authenticated) signout('Your session expired. Sign in to continue.');
     let message = typeof data.detail === 'string' ? data.detail : response.status === 502 || response.status === 504 ? 'Steam is unavailable right now. Please try again later.' : response.status >= 500 ? 'The service is unavailable. Please try again shortly.' : 'The request could not be completed.';
+    if (data.detail && typeof data.detail.message === 'string') message = data.detail.message;
     if (Array.isArray(data.detail)) message = data.detail.map(item => item.msg).join('. ');
     throw new Error(message);
   }
@@ -96,20 +109,23 @@ function refreshAccount() {
   $('sync-button').disabled = !user?.steam_id || state.loading;
 }
 function renderLibrary() {
+  recommendationUI.refresh();
   renderPlan();
-  const stats = summarize(state.games);
+  const libraryGames = state.games.filter(game => ($('library-include-free').checked || game.is_free !== true) && ($('library-include-tests').checked || game.is_test_build !== true) && ($('library-include-excluded').checked || game.recommendation_hidden !== true));
+  const stats = summarize(libraryGames);
   for (const [id, value] of Object.entries({ 'total-count': stats.total, 'progress-count': stats.playing, 'finished-count': stats.finished, 'library-badge': stats.total, 'completion-count': `${stats.percent}%` })) $(id).textContent = value;
   $('completion-bar').style.width = `${stats.percent}%`;
   for (const kind of ['review', 'missing']) {
-    $(kind + '-count').textContent = state.games.filter(game => enrichmentAssessment(game) === kind).length;
+    $(kind + '-count').textContent = libraryGames.filter(game => enrichmentAssessment(game) === kind).length;
   }
   $('assessment-copy').hidden = !['review', 'missing'].includes(state.filter);
   $('assessment-copy').textContent = state.filter === 'review'
     ? 'Choose an HLTB match for these games. Your progress and Play Next order stay saved.'
     : 'Games with failed lookups, no match, or no usable completion estimates.';
-  document.querySelectorAll('[data-filter]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.filter === state.filter)));
-  const selected = selectGames(state.games, state.filter, $('search').value, $('sort').value);
+  document.querySelectorAll('[data-filter]').forEach(button => { const selected = button.dataset.filter === state.filter; button.setAttribute('aria-pressed', String(selected)); button.classList.toggle('selected', selected); });
+  const selected = selectGames(state.games, state.filter, $('search').value, $('sort').value, $('game-mode').value, $('library-include-free').checked, $('library-include-tests').checked, $('library-include-excluded').checked);
   $('game-grid').replaceChildren(...selected.map(gameCard));
+  $('mode-result-count').textContent = `${selected.length} of ${libraryGames.length} games`;
   $('empty-state').hidden = selected.length > 0;
   let title, copy, action;
   if (state.loading && !state.games.length) { title = 'Loading your library…'; copy = 'Getting your games ready.'; }
@@ -117,7 +133,7 @@ function renderLibrary() {
   else if (!state.user.steam_id) { title = 'Bring your Steam library along'; copy = 'Connect Steam to import your games and start tracking your progress.'; action = 'Connect Steam ↗'; }
   else if (!state.games.length) { title = 'Ready when you are'; copy = 'Your Steam account is connected. Sync your library to bring in your games.'; action = 'Sync Steam library ↻'; }
   else if (['review', 'missing'].includes(state.filter)) { title = state.filter === 'review' ? 'No games need review' : 'No missing completion data'; copy = $('search').value ? 'No games in this area match your search.' : 'Games will appear here when they need attention.'; action = 'Clear filters'; }
-  else { title = 'No games match just yet'; copy = 'Try another app ID or progress filter.'; action = 'Clear filters'; }
+  else { title = 'No games match just yet'; copy = 'Try All games, another progress filter, or Show free-to-play games.'; action = 'Clear filters'; }
   $('empty-title').textContent = title; $('empty-copy').textContent = copy; $('empty-action').hidden = !action; $('empty-action').textContent = action || '';
 }
 function gameCard(game) {
@@ -170,6 +186,11 @@ function gameCard(game) {
     const queued = state.queue.includes(game.id);
     info.append(planButton(queued ? 'In Play Next' : 'Add to Play Next', () => changeQueue('/games/queue/' + game.id, 'POST'), queued));
   }
+  const exclude = planButton(game.recommendation_hidden ? 'Restore game' : 'Exclude game',
+    () => setRecommendationHidden(game, !game.recommendation_hidden));
+  exclude.classList.add('recommendation-hide');
+  exclude.title = game.recommendation_hidden ? 'Show in your library and recommendations again' : 'Hide from your library and recommendations; keep progress and queue entries';
+  info.append(exclude);
   card.append(cover, info); return card;
 }
 function planButton(label, action, disabled = false) {
@@ -178,11 +199,11 @@ function planButton(label, action, disabled = false) {
   button.disabled = disabled || state.planBusy || state.loading;
   button.addEventListener('click', action); return button;
 }
-async function planAction(action) {
+async function planAction(action, successMessage = 'Play plan saved.') {
   if (state.planBusy) return;
   const generation = state.generation;
   state.planBusy = true; renderLibrary();
-  try { await action(generation); if (generation === state.generation) notice('Play plan saved.'); }
+  try { await action(generation); if (generation === state.generation) notice(successMessage); }
   catch (error) {
     if (generation === state.generation) {
       notice(error.message, true);
@@ -195,6 +216,12 @@ function changeQueue(path, method, body) {
     const queue = await api(path, { method, body });
     if (generation === state.generation) state.queue = queue;
   });
+}
+function setRecommendationHidden(game, hidden) {
+  return planAction(async generation => {
+    const response = await api(`/games/${game.id}/recommendation-preference`, {method: 'PUT', body: {hidden}});
+    if (generation === state.generation) game.recommendation_hidden = response.hidden;
+  }, hidden ? 'Game excluded. Use Show excluded games to restore it.' : 'Game restored to your library and recommendations.');
 }
 function startPlaying(game) {
   return planAction(async generation => {
@@ -214,7 +241,13 @@ function renderPlan() {
   $('currently-playing').replaceChildren(...playing.map(gameCard));
   $('playing-empty').hidden = playing.length > 0;
   const games = new Map(state.games.map(game => [game.id, game]));
-  $('play-next').replaceChildren(...state.queue.flatMap((id, index) => {
+  const preview = $('queue-sort').value !== 'manual';
+  const displayQueue = sortPlayQueue(state.queue, state.games, $('queue-sort').value, $('queue-sort-goal').value);
+  const changed = displayQueue.some((id, index) => id !== state.queue[index]);
+  $('queue-apply-sort').disabled = !preview || !changed || state.planBusy || state.loading;
+  $('queue-sort').disabled = $('queue-sort-goal').disabled = state.planBusy || state.loading || !state.queue.length;
+  $('queue-sort-status').textContent = !state.queue.length ? '' : preview ? (changed ? 'Preview · Apply order to save. Missing estimates are placed last.' : 'This matches your saved order. Missing estimates are placed last.') : 'Your saved order. Preview a time-based order above.';
+  $('play-next').replaceChildren(...displayQueue.flatMap((id, index) => {
     const game = games.get(id); if (!game) return [];
     const item = document.createElement('li'); item.className = 'queue-item';
     const name = game.name || 'Steam app ' + game.steam_app_id;
@@ -229,7 +262,7 @@ function renderPlan() {
       img.onerror = () => { img.remove(); fallback.hidden = false; }; cover.append(img);
     }
     const rank = document.createElement('span'); rank.className = 'queue-rank';
-    rank.textContent = String(index + 1); rank.setAttribute('aria-label', 'Queue position ' + (index + 1)); cover.append(rank);
+    rank.textContent = String(index + 1); rank.setAttribute('aria-label', (preview ? 'Preview position ' : 'Queue position ') + (index + 1)); cover.append(rank);
     const info = document.createElement('div'); info.className = 'queue-info';
     const title = document.createElement('h3'); title.textContent = name; title.title = name;
     const estimates = document.createElement('dl'); estimates.className = 'completion-times queue-times';
@@ -244,8 +277,8 @@ function renderPlan() {
     estimateNote.textContent = game.hltb_source === 'personal' ? 'HLTB estimates · Your selected match' : game.hltb_id ? 'HLTB estimates' : 'Completion estimates unavailable';
     const start = planButton('Start Playing', () => startPlaying(game)); start.classList.add('queue-start');
     const actions = document.createElement('div'); actions.className = 'queue-actions';
-    const earlier = planButton('\u2190', () => moveQueued(index, -1), index === 0);
-    const later = planButton('\u2192', () => moveQueued(index, 1), index === state.queue.length - 1);
+    const earlier = planButton('\u2190', () => moveQueued(index, -1), preview || index === 0);
+    const later = planButton('\u2192', () => moveQueued(index, 1), preview || index === state.queue.length - 1);
     const remove = planButton('\u00d7', () => changeQueue('/games/queue/' + id, 'DELETE'));
     for (const [button, label] of [[earlier, 'Move ' + name + ' earlier'], [later, 'Move ' + name + ' later'], [remove, 'Remove ' + name + ' from Play Next']]) {
       button.setAttribute('aria-label', label); button.title = label;
@@ -371,7 +404,7 @@ $('sync-button').addEventListener('click', sync);
 $('empty-action').addEventListener('click', () => {
   if (!state.user || !state.user.steam_id) view('account');
   else if (!state.games.length) sync();
-  else { state.filter = 'all'; $('search').value = ''; document.querySelectorAll('[data-filter]').forEach(button => button.classList.toggle('selected', button.dataset.filter === 'all')); renderLibrary(); }
+  else { state.filter = 'not started'; $('search').value = ''; $('game-mode').value = 'all'; $('library-include-free').checked = false; $('library-include-tests').checked = false; $('library-include-excluded').checked = false; document.querySelectorAll('[data-filter]').forEach(button => button.classList.toggle('selected', button.dataset.filter === 'not started')); renderLibrary(); }
 });
 for (const id of ['signout', 'profile-signout']) $(id).addEventListener('click', () => signout('Signed out. See you next chapter.'));
 $('account-button').addEventListener('click', () => view('account'));
@@ -393,3 +426,29 @@ if (state.user) {
   } catch { sessionStorage.removeItem('backlog-enrichment'); }
 }
 if (callback.get('steam') === 'error') { view('account'); notice(callback.get('message') || 'Steam linking failed. Please try connecting again.', true); }
+
+$('game-mode').addEventListener('change', renderLibrary);
+
+$('library-include-free').addEventListener('change', renderLibrary);
+
+$('library-include-tests').addEventListener('change', renderLibrary);
+
+$('library-include-excluded').addEventListener('change', renderLibrary);
+
+const visibilityMenu = $('library-visibility');
+visibilityMenu.addEventListener('keydown', event => {
+  if (event.key === 'Escape') { visibilityMenu.open = false; visibilityMenu.querySelector('summary').focus(); }
+});
+document.addEventListener('click', event => {
+  if (!visibilityMenu.contains(event.target)) visibilityMenu.open = false;
+});
+
+$('queue-sort').addEventListener('change', renderPlan);
+$('queue-sort-goal').addEventListener('change', renderPlan);
+$('queue-apply-sort').addEventListener('click', () => {
+  const game_ids = sortPlayQueue(state.queue, state.games, $('queue-sort').value, $('queue-sort-goal').value);
+  return planAction(async generation => {
+    const queue = await api('/games/queue', {method: 'PUT', body: {game_ids}});
+    if (generation === state.generation) { state.queue = queue; $('queue-sort').value = 'manual'; }
+  }, 'Queue order saved.');
+});

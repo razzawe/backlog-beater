@@ -1,0 +1,5 @@
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+ALTER TABLE enrichment_jobs ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE enrichment_jobs ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ;
+COMMIT;

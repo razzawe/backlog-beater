@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app:/app/enrichment-worker:/app/enrichment-service
+    PYTHONPATH=/app:/app/enrichment-worker:/app/enrichment-service:/app/metadata-worker
 
 WORKDIR /app
 COPY pyproject.toml ./
@@ -10,6 +10,8 @@ RUN python -c 'import subprocess, sys, tomllib; dependencies = tomllib.load(open
 RUN groupadd --system app && useradd --system --gid app app
 COPY --chown=app:app app ./app
 COPY --chown=app:app enrichment-worker ./enrichment-worker
+# Import-event scheduling uses metadata job creation/dispatch helpers.
+COPY --chown=app:app metadata-worker/metadata_worker ./metadata-worker/metadata_worker
 # Reuse lookup/matching/persistence helpers; do not package the FastAPI API.
 COPY --chown=app:app enrichment-service/enrichment_service/__init__.py enrichment-service/enrichment_service/hltb.py enrichment-service/enrichment_service/matching.py enrichment-service/enrichment_service/storage.py enrichment-service/enrichment_service/review_cache.py ./enrichment-service/enrichment_service/
 USER app

@@ -24,21 +24,57 @@
     <section id="library-view">
       <div class="intro"><div><div class="eyebrow">GOOD GAMES DESERVE TO BE PLAYED</div><h1>Your next great game<br>is already in your library<span>.</span></h1><p>A little less scrolling. A little more playing.<br>Make a dent in that backlog, one game at a time.</p></div><div class="hero-art" aria-hidden="true"><div class="art-orbit"></div><div class="art-card card-back"><span>PLAY<br>WHAT<br>YOU OWN.</span></div><div class="art-card card-front"><span class="art-star">✦</span><span>ONE MORE<br>CHAPTER.</span><small>BACKLOG BEATER / 01</small></div><span class="floating-label">YOUR NEXT ADVENTURE ↗</span></div></div>
       <div class="stats"><div><span class="stat-icon purple">▦</span><div><strong id="total-count">0</strong><span>Games in your library</span></div></div><div><span class="stat-icon blue">◷</span><div><strong id="progress-count">0</strong><span>Currently playing</span></div></div><div><span class="stat-icon green">✓</span><div><strong id="finished-count">0</strong><span>Finished & celebrated</span></div></div><div class="completion-stat"><div><strong id="completion-count">0%</strong><span>Your completion rate</span></div><div class="progress-track"><span id="completion-bar"></span></div></div></div>
+      <section class="recommendation-panel" aria-labelledby="recommendation-title">
+        <div class="recommendation-heading"><div><div class="eyebrow">MAKE ROOM FOR YOUR NEXT GAME</div><h2 id="recommendation-title">Pick my next game</h2><p>Find something you own that fits your time and interests.</p></div><output id="recommendation-budget" aria-live="polite">12-hour budget</output></div>
+        <p id="recommendation-signin">Sign in to get suggestions from your library.</p>
+        <form id="recommendation-form" hidden>
+          <div class="recommendation-fields">
+            <label>Hours per week<input name="weekly_hours" type="number" min="0.01" max="168" step="any" value="4" required></label>
+            <label>Finish within (weeks)<input name="target_weeks" type="number" min="1" max="52" step="1" value="3" required></label>
+            <label>Completion goal<select name="completion_goal"><option value="main_story">Main story</option><option value="main_extra">Story + extras</option><option value="completionist">Completionist</option></select></label>
+          </div>
+          <fieldset class="recommendation-genres"><legend>Preferred genres <span>(optional)</span></legend><p id="recommendation-genre-status" role="status"></p><div class="genre-picker" id="genre-picker"><details id="genre-dropdown"><summary><span id="genre-summary">Any genre</span><span aria-hidden="true">⌄</span></summary><div class="genre-menu"><label class="genre-search-label">Search genres<input id="genre-search" type="search" placeholder="Find a genre…" autocomplete="off"></label><div class="genre-menu-heading"><span>Choose your interests</span><button id="genre-clear" type="button">Clear selection</button></div><div id="recommendation-genres"></div><p id="genre-no-results" hidden>No matching genres.</p></div></details><div id="genre-chips" aria-label="Selected genres"></div></div><button id="recommendation-genres-retry" class="button secondary" type="button" hidden>Reload genres</button></fieldset>
+          <div class="recommendation-options"><label><input type="checkbox" name="include_free"> Include free-to-play games</label><small>Free-to-play games are excluded by default when verified by Steam. Unknown pricing may still appear.</small></div><div class="recommendation-submit"><button id="recommendation-submit" class="button primary" type="submit">Find my next game ↗</button><small>Up to 3 suggestions. Play Next included; your saved order stays yours.</small></div>
+        </form>
+        <p id="recommendation-error" class="form-error" role="alert" hidden></p><button id="recommendation-page-retry" class="button secondary" type="button" hidden>Retry loading results</button>
+        <p id="recommendation-status" role="status" aria-live="polite"></p>
+        <div id="recommendation-results" class="game-grid"></div>
+        <nav id="recommendation-pages" class="recommendation-pages" aria-label="Recommendation pages" hidden><button id="recommendation-back" class="button secondary" type="button">← Back</button><span id="recommendation-page-label" role="status" aria-live="polite"></span><span id="recommendation-page-loading" role="status" hidden>Loading…</span><button id="recommendation-next" class="button secondary" type="button">Show next 3 →</button></nav>
+        <p class="recommendation-assumption">Completion times are estimates. Weeks assume your full weekly time budget goes toward one game.</p>
+      </section>
       <section id="play-plan" hidden aria-label="Your play plan">
         <h2>Currently Playing</h2>
         <p id="playing-empty">Choose a single-player game from your library and select Start Playing.</p>
         <div id="currently-playing" class="game-grid"></div>
         <h2>Play Next</h2>
+        <div class="queue-sort-controls">
+          <label>Order<select id="queue-sort"><option value="manual">Manual order</option><option value="shortest">Shortest → longest</option><option value="longest">Longest → shortest</option></select></label>
+          <label>Completion goal<select id="queue-sort-goal"><option value="main_story_hours">Main story</option><option value="main_extra_hours">Story + extras</option><option value="completionist_hours">Completionist</option></select></label>
+          <button id="queue-apply-sort" class="button secondary" type="button" disabled>Apply order</button>
+        </div>
+        <p id="queue-sort-status" class="queue-sort-status" role="status" aria-live="polite"></p>
         <p id="queue-empty">Add games from your library to build your next adventures.</p>
         <ol id="play-next"></ol>
       </section>
       <div class="library-heading"><div><h2>My library <span id="library-badge">0</span></h2><p>All your games. A fresh perspective.</p></div><button id="sync-button" class="button primary" disabled><span>↻</span> Sync Steam library</button></div>
-      <nav class="assessment-tabs" aria-label="Enrichment assessment">
-        <button class="filter" data-filter="review" aria-pressed="false">Needs Review <span id="review-count">0</span></button>
-        <button class="filter" data-filter="missing" aria-pressed="false">Missing Completion Data <span id="missing-count">0</span></button>
-      </nav>
+      <details class="library-maintenance">
+        <summary>Library maintenance <span>Completion data and match review</span></summary>
+        <div class="maintenance-menu" aria-label="Library maintenance views">
+          <button class="filter maintenance-row" data-filter="review" aria-pressed="false"><span><strong>Needs review</strong><small>Choose the right HLTB match.</small></span><span id="review-count" class="maintenance-count">0</span></button>
+          <button class="filter maintenance-row" data-filter="missing" aria-pressed="false"><span><strong>Missing completion data</strong><small>Check games without usable time estimates.</small></span><span id="missing-count" class="maintenance-count">0</span></button>
+        </div>
+      </details>
       <p id="assessment-copy" class="assessment-copy" hidden></p>
-      <div class="toolbar"><div class="filters" role="group" aria-label="Filter by progress"><button class="filter selected" data-filter="all">All games</button><button class="filter" data-filter="not started">Not started</button><button class="filter" data-filter="in progress">Playing</button><button class="filter" data-filter="finished">Finished</button></div><div class="search-sort"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Search your games…" aria-label="Search library"></label><select id="sort" aria-label="Sort games"><option value="default">Recently added</option><option value="appid">Steam app ID</option><option value="status">Progress</option></select></div></div>
+      <div class="toolbar"><div class="filters" role="group" aria-label="Filter by progress"><button class="filter" data-filter="all">All games</button><button class="filter selected" data-filter="not started">Not started</button><button class="filter" data-filter="in progress">Playing</button><button class="filter" data-filter="finished">Finished</button></div><div class="search-sort"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Search your games…" aria-label="Search library"></label><span id="mode-result-count" role="status" aria-live="polite"></span><select id="game-mode" aria-label="Filter by game mode"><option value="all">All game modes</option><option value="single">Single-player</option><option value="multi">Multiplayer</option><option value="single-only">Single-player only</option><option value="multi-only">Multiplayer only</option><option value="unknown">Unknown mode</option></select><select id="sort" aria-label="Sort games"><option value="default">Recently added</option><option value="appid">Steam app ID</option><option value="status">Progress</option></select></div></div>
+      <details class="library-visibility" id="library-visibility">
+        <summary>Visibility <span aria-hidden="true">⌄</span></summary>
+        <fieldset class="library-visibility-menu"><legend>Include in library</legend>
+          <label><input id="library-include-free" type="checkbox"><span>Free-to-play games</span></label>
+          <label><input id="library-include-tests" type="checkbox"><span>Test builds</span></label>
+          <label><input id="library-include-excluded" type="checkbox"><span>Excluded games</span></label>
+          <small>Unknown free status stays visible. Excluded games can be restored from their cards.</small>
+        </fieldset>
+      </details>
       <div id="game-grid" class="game-grid" aria-live="polite"></div>
       <div id="empty-state" class="empty-state"><span class="empty-icon">▦</span><h3 id="empty-title">Your next chapter starts here</h3><p id="empty-copy">Sign in, connect Steam, and bring your library together.<br>Your backlog is full of possibilities.</p><button id="empty-action" class="button primary">Get started <span>↗</span></button></div>
       <footer><span>Built for the games you haven’t gotten to. Yet.</span><span>ONE GAME AT A TIME ↗</span></footer>

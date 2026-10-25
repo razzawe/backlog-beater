@@ -1,0 +1,5 @@
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+ALTER TABLE game_metadata ADD COLUMN IF NOT EXISTS is_free BOOLEAN;
+ALTER TABLE ownedgame ADD COLUMN IF NOT EXISTS recommendation_hidden BOOLEAN NOT NULL DEFAULT FALSE;
+COMMIT;
