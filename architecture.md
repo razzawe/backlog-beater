@@ -128,16 +128,32 @@ The import event is a **versioned Celery task contract**, not a fan-out event bu
 
 HLTB enrichment and Steam metadata collection each maintain their own database-backed job state, with one job identity per catalog game within the respective workflow.
 
+
+### Job Lifecycle
+
 ```mermaid
 stateDiagram-v2
-    [*] --> READY: Eligible game / missing job
-    READY --> PENDING: Reserve publication + new attempt token
-    PENDING --> RUNNING: Atomic claim with matching token
-    PENDING --> PENDING: Republish eligible pending attempt
-    RUNNING --> COMPLETED: Commit valid result + completion
-    RUNNING --> FAILED: Terminal error or timeout
-    FAILED --> READY: Explicit retry / eligible bounded retry
+    direction TB
+
+    [*] --> READY: Created
+    READY --> PENDING: Dispatch
+    PENDING --> RUNNING: Claim
+    PENDING --> PENDING: Republish
+    RUNNING --> COMPLETED: Success
+    RUNNING --> FAILED: Failure
+    FAILED --> READY: Retry
 ```
+
+**State transitions:**
+
+- **Created → READY:** An eligible game is identified and a missing enrichment job is created.
+- **READY → PENDING:** The dispatcher reserves publication and generates a new attempt token.
+- **PENDING → RUNNING:** A worker atomically claims the job using the matching attempt token.
+- **PENDING → PENDING:** An eligible pending attempt is republished after its publication cooldown.
+- **RUNNING → COMPLETED:** The worker commits a valid result and marks the job as completed.
+- **RUNNING → FAILED:** A terminal error or execution timeout causes the job to fail.
+- **FAILED → READY:** An explicit retry or eligible bounded retry resets the job for another attempt.
+
 
 ### Claim and execution protocol
 
