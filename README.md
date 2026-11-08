@@ -11,6 +11,7 @@ Backlog Beater helps players organize their Steam libraries, track completion pr
 - Handles uncertain matches through candidate review and user-specific overrides.
 - Runs slow external lookups asynchronously rather than blocking HTTP requests.
 - Reuses catalog-level results while keeping personal progress and preferences separate.
+- Supports optional AWS S3-backed cover-image storage and display, enabled for testing/demos rather than required for local development.
 
 ## Tech stack
 
@@ -18,7 +19,7 @@ Backlog Beater helps players organize their Steam libraries, track completion pr
 | --- | --- |
 | APIs | Python, FastAPI |
 | Background jobs | Celery, Redis |
-| Data storage | PostgreSQL |
+| Data storage | PostgreSQL; optional AWS S3 object storage for covers |
 | Frontend | React |
 | Gateway and deployment | Nginx, Docker Compose |
 | External integrations | Steam and HowLongToBeat (HLTB) |
@@ -32,19 +33,30 @@ flowchart LR
   Gateway --> Library[Library API]
   Gateway --> Sync[Sync API]
   Gateway --> Enrichment[Enrichment API]
-  Sync --> DB[(PostgreSQL)]
-  Sync -->|Versioned import event| Redis[(Redis broker)]
-  Scheduler[Celery Beat] --> Redis
-  Redis --> Worker[Celery enrichment worker]
-  Worker --> DB
-  Worker --> External[Steam / HLTB]
-  Enrichment --> Cache[(Redis cache)]
+  Gateway --> Recommendation[Recommendation API]
+
+  Sync -->|Fetch owned games| Steam[Steam API]
+  Sync -->|Persist import| DB[(PostgreSQL)]
+  Sync -->|Versioned import event| Broker[(Redis broker)]
+  Beat[Celery Beat] -->|Periodic maintenance tasks| Broker
+  Broker --> EnrichmentWorker[Celery enrichment workers]
+  EnrichmentWorker --> DB
+  EnrichmentWorker -->|Metadata and playtime lookups| External[Steam / HLTB]
+
   Auth --> DB
   Library --> DB
   Enrichment --> DB
+  Recommendation --> DB
+  Enrichment --> Cache[(Redis cache)]
+
+  SteamCDN[Steam image CDN] -.->|Optional image ingestion| ImageWorker[Image worker]
+  ImageWorker -.->|When S3 uploads enabled| S3[(AWS S3 cover storage)]
+  S3 -.->|Optional read-only image access| Library
+  S3 -.->|Optional read-only image access| Recommendation
 ```
 
-The application has separately containerized APIs for authentication, libraries, synchronization, and enrichment. PostgreSQL stores the shared catalog and durable job state; Redis brokers background messages and also supports review caching. A Celery worker performs external lookups, while a periodic scheduler drives maintenance and recovery.
+
+The application has separately containerized APIs for authentication, libraries, synchronization, and enrichment. PostgreSQL stores the shared catalog and durable job state; Redis brokers background messages and also supports review caching. Celery workers perform external lookups, while a periodic scheduler drives maintenance and recovery. The Sync API fetches libraries from Steam; the Library API ordinarily serves stored library data rather than requesting Steam on every read. Dashed S3 connections represent an **implemented but optional** image-storage path, not a required always-on dependency.
 
 **Architectural tradeoff:** the services share a database and some models. This keeps local development manageable, but it is not a fully independent, database-per-service architecture.
 
@@ -70,6 +82,17 @@ Pending work is eligible for republishing after a cooldown. A scheduler also det
 
 Shared game metadata and lookup results can be reused across users, while each user's completion status and match overrides are stored independently.
 
+## Optional AWS S3 image storage
+
+The application includes an **implemented S3 integration for game cover images**. It is intentionally **opt-in**: routine local development can run without enabling S3 uploads or supplying cloud credentials. I enable the S3 path when testing or demonstrating cloud-backed storage and display, and disable it otherwise to limit unnecessary cloud usage.
+
+- **Upload path:** the image worker can ingest cover images and store them in S3 when uploads are explicitly enabled. [`compose.s3-upload.yml`](compose.s3-upload.yml) supplies a local AWS credential mount for this workflow; it **does not itself enable uploads**, and the upload flag defaults to off.
+- **Display/read path:** the Library and Recommendation services can be configured for read-only S3 access using [`compose.s3-display.yml`](compose.s3-display.yml), independently of the upload override.
+- **Credential separation:** the display override is designed for a restricted profile with `s3:GetObject` access to cover objects. AWS credentials should stay outside version control.
+- **Cost control:** optional S3 functionality is not needed for normal local development. Disabling requests limits new activity, although already-stored objects may continue to incur storage charges.
+
+**Architecture note:** S3 is a real integration, not a future proposal. The dashed arrows in the diagram indicate that the S3 paths are selectively enabled for demos/tests, not that the code is unimplemented. The diagram is simplified and does not attempt to depict each presigned URL or HTTP interaction.
+
 ## Reliability considerations and tradeoffs
 
 **Already addressed in the implementation:** persistent job states, atomic claims, attempt-token fencing, duplicate-message handling, bounded dispatch batches, and stale-attempt detection.
@@ -80,7 +103,7 @@ Shared game metadata and lookup results can be reused across users, while each u
 
 ## Running locally
 
-This repository contains a root-level [Docker Compose configuration](compose.yml), an [.env.example](.env.example), and additional Compose configurations for specific workflows.
+This repository contains a root-level [Docker Compose configuration](compose.yml), an [.env.example](.env.example), and additional Compose configurations for specific workflows, including opt-in S3 upload and display.
 
 1. Review [backend/README.md](backend/README.md) for prerequisites, environment variables, migrations, and service startup requirements.
 2. Configure local environment variables using `.env.example` as a reference. Do not commit credentials.
@@ -99,6 +122,8 @@ scripts/             Development and operational scripts
 architecture.md      Detailed system design and reliability notes
 compose.yml          Primary local orchestration
 compose.test.yml     Test-related orchestration
+compose.s3-upload.yml Optional local S3 upload credential override
+compose.s3-display.yml Optional S3 read-only display credential override
 ```
 
 ## What I'm exploring next
