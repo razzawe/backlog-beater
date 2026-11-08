@@ -125,8 +125,7 @@ The import event is a **versioned Celery task contract**, not a fan-out event bu
 **Important limitation:** The import transaction currently commits **before** publishing the message. A crash between those actions may leave committed games without the corresponding enrichment event. A later sync can reannounce them; a **transactional outbox or reconciliation** mechanism remains a planned reliability improvement.
 
 ## 5. Durable background jobs
-
-HLTB enrichment and Steam metadata collection each maintain their own database-backed job state, with one job identity per catalog game within the respective workflow.
+Backlog Beater uses PostgreSQL-backed job records and Celery workers to coordinate asynchronous enrichment. PostgreSQL maintains durable job state, while Redis acts as the message broker.HLTB enrichment and Steam metadata collection each maintain their own database-backed job state, with one job identity per catalog game within the respective workflow.
 
 
 ### Job Lifecycle
